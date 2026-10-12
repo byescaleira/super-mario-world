@@ -59,6 +59,7 @@ public final class GameSettings {
     public var wideGamut: Bool { didSet { save() } }
     /// 120 Hz presentation with interpolated in-between frames.
     public var motion120: Bool { didSet { save() } }
+    public var showPerformance: Bool { didSet { save() } }
 
     private let defaults: UserDefaults
     private var loading = true
@@ -81,6 +82,7 @@ public final class GameSettings {
         hdrPeak = defaults.object(forKey: "hdrPeak") as? Double ?? 2.5
         wideGamut = defaults.object(forKey: "wideGamut") as? Bool ?? false
         motion120 = defaults.object(forKey: "motion120") as? Bool ?? true
+        showPerformance = defaults.object(forKey: "showPerformance") as? Bool ?? false
         loading = false
     }
 
@@ -102,5 +104,6 @@ public final class GameSettings {
         defaults.set(hdrPeak, forKey: "hdrPeak")
         defaults.set(wideGamut, forKey: "wideGamut")
         defaults.set(motion120, forKey: "motion120")
+        defaults.set(showPerformance, forKey: "showPerformance")
     }
 }

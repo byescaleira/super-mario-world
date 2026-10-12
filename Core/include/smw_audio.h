@@ -26,6 +26,8 @@ void smw_audio_ring_push(SMWAudioRing *ring, const int16_t *stereo, int frames);
 void smw_audio_ring_render(SMWAudioRing *ring, float *left, float *right, int frames, double outputRate,
                            float volume);
 uint32_t smw_audio_ring_fill(const SMWAudioRing *ring);
+// Number of times playback ran dry (diagnostics).
+uint32_t smw_audio_ring_underruns(const SMWAudioRing *ring);
 
 #ifdef __cplusplus
 }

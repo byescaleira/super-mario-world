@@ -63,8 +63,18 @@ public final class GameEngine {
         p.initialize(repeating: 0xFF00_0000, count: frameWords)
         return p
     }()
-    @ObservationIgnored private var motionPhase = 0
-    @ObservationIgnored private var highRefresh = false
+    // Frame pacing: the game advances by real time, never by display refresh.
+    @ObservationIgnored private var lastTickTime: CFTimeInterval = 0
+    @ObservationIgnored private var tickInterval: Double = 1.0 / 60
+    @ObservationIgnored private var vsyncCounter = 0
+    @ObservationIgnored private var clockAccumulator: Double = 0
+    @ObservationIgnored private var vsyncLocked = false
+    @ObservationIgnored private var motionCapture = false
+    @ObservationIgnored private var statsWindowStart: CFTimeInterval = 0
+    @ObservationIgnored private var statsTicks = 0
+    @ObservationIgnored private var statsFrames = 0
+    /// One-line performance readout (Settings → "Mostrar desempenho").
+    public private(set) var performanceText: String?
     @ObservationIgnored private let vault = SaveVault()
     @ObservationIgnored private var netplay: NetplaySession?
     @ObservationIgnored private let matchmaker = Matchmaker()
@@ -174,15 +184,55 @@ public final class GameEngine {
         }
         if frameCounter % 60 == 0 {
             headroom = DisplayConfigurator.headroom(of: view)
+            // Ask for 120 Hz where the panel can do it; what we actually get is
+            // measured every refresh (Low Power Mode or ProMotion may give 60).
             let fps = settings.motion120 && DisplayConfigurator.maximumFramesPerSecond(of: view) >= 120 ? 120 : 60
             if view.preferredFramesPerSecond != fps { view.preferredFramesPerSecond = fps }
-            if highRefresh != (fps == 120) {
-                highRefresh = fps == 120
-                core?.setMotionCapture(highRefresh)
-                motionPhase = 0
+            if motionCapture != settings.motion120 {
+                motionCapture = settings.motion120
+                core?.setMotionCapture(motionCapture)
             }
         }
         return wanted
+    }
+
+    private static let snesFrameDuration = 1.0 / 60.0988
+
+    /// How many game frames to run this refresh, and how far (0..<1) the
+    /// display is past the newest one. Locks to vsync at 60 / 120 Hz (exact
+    /// cadence, audio absorbs the 0.16% difference); elsewhere follows the clock.
+    private func pace() -> (frames: Int, phase: Double, refresh: Double) {
+        let now = CACurrentMediaTime()
+        let dt = lastTickTime == 0 ? tickInterval : min(max(now - lastTickTime, 0), 0.25)
+        lastTickTime = now
+        if dt > 0.002, dt < 0.05 { tickInterval += (dt - tickInterval) * 0.05 }
+        // After a long stall (app switch, heavy system load) don't race to catch
+        // up: that only makes the next refresh late too.
+        if dt > 0.1 {
+            vsyncCounter = 0
+            clockAccumulator = 0
+            return (1, 0, 1 / tickInterval)
+        }
+        let refresh = 1 / tickInterval
+        let ratio = refresh * Self.snesFrameDuration
+        let perFrame = max(1, Int(ratio.rounded()))
+        // Lock only when the audio rate control (±0.5%) can absorb the gap;
+        // hysteresis keeps a jittery refresh from flipping modes.
+        let deviation = abs(ratio - Double(perFrame)) / Double(perFrame)
+        vsyncLocked = perFrame <= 2 && deviation < (vsyncLocked ? 0.008 : 0.004)
+        if vsyncLocked {
+            // Count missed vsyncs too, so a dropped refresh doesn't slow the game.
+            vsyncCounter += max(1, Int((dt / tickInterval).rounded()))
+            let frames = vsyncCounter / perFrame
+            vsyncCounter %= perFrame
+            clockAccumulator = 0
+            return (min(frames, 2), Double(vsyncCounter) / Double(perFrame), refresh)
+        }
+        clockAccumulator += dt
+        let frames = min(Int(clockAccumulator / Self.snesFrameDuration), 2)
+        clockAccumulator -= Double(frames) * Self.snesFrameDuration
+        if clockAccumulator > Self.snesFrameDuration { clockAccumulator = 0 }
+        return (frames, clockAccumulator / Self.snesFrameDuration, refresh)
     }
 
     /// Called once per display refresh by the Metal view.
@@ -192,40 +242,56 @@ public final class GameEngine {
         for event in input.menuEvents() { handleMenu(event) }
         let slot = renderer.acquireSlot()
         let fb = renderer.pixels(of: slot)
+        frameCounter += 1
+        let timing = pace()
         if let core, phase == .playing, !isPaused {
             core.setWidescreen(widescreenMargin(for: view))
-            if highRefresh {
-                presentMotion(core, into: fb)
-            } else {
-                emulate(core, into: fb)
-                frameCounter += 1
-                lastWidth = core.frameWidth
-                lastFrame.withUnsafeMutableBufferPointer { _ = memcpy($0.baseAddress!, fb, Self.frameBytes) }
+            for i in 0..<timing.frames {
+                // Only the newest frame of a catch-up burst is drawn.
+                emulate(core, into: i == timing.frames - 1 ? pending : nil)
             }
+            if timing.frames > 0 {
+                lastWidth = core.frameWidth
+                lastFrame.withUnsafeMutableBufferPointer { _ = memcpy($0.baseAddress!, pending, Self.frameBytes) }
+            }
+            present(core, into: fb, phase: timing.phase, refresh: timing.refresh)
+            updateStats(frames: timing.frames, refresh: timing.refresh)
         } else {
-            frameCounter += 1
             lastFrame.withUnsafeBufferPointer { _ = memcpy(fb, $0.baseAddress!, Self.frameBytes) }
         }
         renderer.draw(slot: slot, activeWidth: lastWidth, in: view, config: videoConfig(output: output))
     }
 
-    /// 120 Hz: even refreshes emulate the next 60 Hz game frame and show the
-    /// moment halfway towards it; odd refreshes show the frame itself.
-    private func presentMotion(_ core: EmulatorCore, into fb: UnsafeMutablePointer<UInt32>) {
-        if motionPhase == 0 {
-            emulate(core, into: pending)
-            frameCounter += 1
-            lastWidth = core.frameWidth
-            let smooth = !isRewinding && !isFastForwarding && core.renderInterpolated(into: fb, t: 0.5)
-            if !smooth { memcpy(fb, pending, Self.frameBytes) }
-            lastFrame.withUnsafeMutableBufferPointer { _ = memcpy($0.baseAddress!, pending, Self.frameBytes) }
-        } else {
-            memcpy(fb, pending, Self.frameBytes)
-        }
-        motionPhase ^= 1
+    /// On displays really running above ~90 Hz, refreshes that fall between
+    /// two game frames show the PPU-rendered in-between moment.
+    private func present(_ core: EmulatorCore, into fb: UnsafeMutablePointer<UInt32>, phase: Double, refresh: Double) {
+        let t = Float(phase + 0.5)
+        let smooth = settings.motion120 && refresh > 90 && t < 0.99 && !isRewinding && !isFastForwarding
+            && core.renderInterpolated(into: fb, t: t)
+        if !smooth { memcpy(fb, pending, Self.frameBytes) }
     }
 
-    private func emulate(_ core: EmulatorCore, into fb: UnsafeMutablePointer<UInt32>) {
+    private func updateStats(frames: Int, refresh: Double) {
+        statsTicks += 1
+        statsFrames += frames
+        let now = CACurrentMediaTime()
+        if statsWindowStart == 0 { statsWindowStart = now }
+        guard now - statsWindowStart >= 1 else { return }
+        let elapsed = now - statsWindowStart
+        if settings.showPerformance {
+            let audioMs = Int(Double(smw_audio_ring_fill(audio.ring)) / Double(SMW_AUDIO_RATE) * 1000)
+            performanceText = String(format: "Tela %.0f Hz · jogo %.1f fps · áudio %d ms · falhas %d",
+                                     Double(statsTicks) / elapsed, Double(statsFrames) / elapsed, audioMs,
+                                     Int(smw_audio_ring_underruns(audio.ring)))
+        } else if performanceText != nil {
+            performanceText = nil
+        }
+        statsWindowStart = now
+        statsTicks = 0
+        statsFrames = 0
+    }
+
+    private func emulate(_ core: EmulatorCore, into fb: UnsafeMutablePointer<UInt32>?) {
         if let netplay, netplay.phase != .ended("") {
             emulateOnline(netplay, core, into: fb)
             return
@@ -242,8 +308,6 @@ public final class GameEngine {
                 core.setFramebuffer(fb)
                 core.runFrame()
                 core.discardAudio()
-            } else {
-                lastFrame.withUnsafeBufferPointer { _ = memcpy(fb, $0.baseAddress!, Self.frameBytes) }
             }
             return
         }
@@ -520,6 +584,7 @@ public final class GameEngine {
             self?.input.wantsTouchControls = v
         })
         #endif
+        items.append(toggleItem("perf", "Mostrar desempenho", s.showPerformance) { s.showPerformance = $0 })
         items.append(MenuItem(id: "renderer", title: "Renderizador", value: rendererName, kind: .info))
         return items
     }
@@ -591,11 +656,11 @@ public final class GameEngine {
         }
     }
 
-    private func emulateOnline(_ session: NetplaySession, _ core: EmulatorCore, into fb: UnsafeMutablePointer<UInt32>) {
+    private func emulateOnline(_ session: NetplaySession, _ core: EmulatorCore, into fb: UnsafeMutablePointer<UInt32>?) {
         isRewinding = false
         isFastForwarding = false
         let (p0, p1) = input.poll()
-        if session.advance(localButtons: p0 | p1, display: fb) {
+        if session.advance(localButtons: p0 | p1, display: fb ?? pending) {
             if core.takeSRAMDirty() { flushSRAM() }
             if core.frameCount % 60 == 0 { gameCenter.observe(wram: core.wram, player: session.localPort) }
             haptics.enabled = settings.haptics
@@ -603,8 +668,6 @@ public final class GameEngine {
                 haptics.handle(events: core.soundEvents, useDevice: input.touchControlsVisible)
             }
             onlineStatus = "\(session.transport.name) · \(session.transport.peerName) · \(session.lag) quadros"
-        } else {
-            lastFrame.withUnsafeBufferPointer { _ = memcpy(fb, $0.baseAddress!, Self.frameBytes) }
         }
     }
 

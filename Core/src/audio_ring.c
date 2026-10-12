@@ -1,4 +1,5 @@
 #include <stdatomic.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -15,6 +16,8 @@ struct SMWAudioRing {
     float hist[4][2];
     double frac;
     float gain; // ramps to avoid clicks on underrun
+    bool starved;
+    _Atomic uint32_t underruns;
 };
 
 SMWAudioRing *smw_audio_ring_create(uint32_t capacityFrames, double inputRate) {
@@ -24,6 +27,7 @@ SMWAudioRing *smw_audio_ring_create(uint32_t capacityFrames, double inputRate) {
     r->data = calloc(cap * 2, sizeof(int16_t));
     r->capacity = cap;
     r->inputRate = inputRate;
+    r->starved = true; // fill to the target before the first sound
     atomic_store(&r->target, cap / 4);
     return r;
 }
@@ -38,7 +42,10 @@ void smw_audio_ring_set_target(SMWAudioRing *r, uint32_t targetFrames) { atomic_
 
 void smw_audio_ring_clear(SMWAudioRing *r) {
     atomic_store(&r->read, atomic_load(&r->write));
+    r->starved = true;
 }
+
+uint32_t smw_audio_ring_underruns(const SMWAudioRing *r) { return atomic_load(&((SMWAudioRing *)r)->underruns); }
 
 uint32_t smw_audio_ring_fill(const SMWAudioRing *r) {
     return atomic_load_explicit(&r->write, memory_order_acquire) -
@@ -77,6 +84,19 @@ void smw_audio_ring_render(SMWAudioRing *r, float *left, float *right, int frame
     double step = r->inputRate / outputRate * adjust;
     const float scale = 1.0f / 32768.0f;
 
+    // Prebuffer: after starting or running dry, stay silent until the buffer
+    // is back at its target instead of crackling on every small hiccup.
+    if (r->starved && fill < target) {
+        for (int i = 0; i < frames; i++) {
+            r->gain *= 0.98f;
+            float g = r->gain * volume;
+            left[i] = r->hist[3][0] * g;
+            right[i] = r->hist[3][1] * g;
+        }
+        return;
+    }
+    r->starved = false;
+
     for (int i = 0; i < frames; i++) {
         while (r->frac >= 1.0) {
             r->frac -= 1.0;
@@ -89,6 +109,8 @@ void smw_audio_ring_render(SMWAudioRing *r, float *left, float *right, int frame
                 if (r->gain < 1.0f) r->gain += 1.0f / 256.0f;
             } else {
                 // Underrun: hold the last sample and fade out.
+                if (!r->starved) atomic_fetch_add(&r->underruns, 1);
+                r->starved = true;
                 r->gain *= 0.98f;
             }
         }

@@ -37,17 +37,32 @@ static inline int lerp_signed16(int a, int b, int maxStep, float t) {
     return a + (int)(diff * t + (diff >= 0 ? 0.5f : -0.5f));
 }
 
-static void interpolate_oam(uint8_t *out, const uint8_t *a, const uint8_t *b, float t) {
+// `camDx/camDy`: how far the camera still has to travel from the in-between
+// moment to frame B. A sprite with no partner in frame A (new, or its OAM slot
+// was reassigned) is assumed to sit still in the level, so it is shifted by
+// that amount instead of popping out of step with the background.
+static void interpolate_oam(uint8_t *out, const uint8_t *a, const uint8_t *b, float t, int camDx, int camDy) {
     memcpy(out, b, 544);
     for (int i = 0; i < 128; i++) {
         const uint8_t *ea = a + i * 4, *eb = b + i * 4;
         int ha = a[0x200 + (i >> 2)] >> ((i & 3) * 2);
         int hb = b[0x200 + (i >> 2)] >> ((i & 3) * 2);
-        if (ea[1] == OAM_HIDDEN_Y || eb[1] == OAM_HIDDEN_Y) continue;
-        if ((ea[3] & 0x0E) != (eb[3] & 0x0E) || (ha & 2) != (hb & 2)) continue; // palette / size
-        int xa = ea[0] | ((ha & 1) << 8), xb = eb[0] | ((hb & 1) << 8);
-        int x = lerp_wrapped(xa, xb, 0x1FF, MAX_SPRITE_STEP, t);
-        int y = lerp_wrapped(ea[1], eb[1], 0xFF, MAX_SPRITE_STEP, t);
+        if (eb[1] == OAM_HIDDEN_Y) continue;
+        int xb = eb[0] | ((hb & 1) << 8);
+        int x, y;
+        bool paired = ea[1] != OAM_HIDDEN_Y && (ea[3] & 0x0E) == (eb[3] & 0x0E) && (ha & 2) == (hb & 2);
+        int xa = ea[0] | ((ha & 1) << 8);
+        if (paired) {
+            int dx = ((xb - xa + 256) & 0x1FF) - 256, dy = ((eb[1] - ea[1] + 128) & 0xFF) - 128;
+            paired = abs(dx) <= MAX_SPRITE_STEP && abs(dy) <= MAX_SPRITE_STEP;
+        }
+        if (paired) {
+            x = lerp_wrapped(xa, xb, 0x1FF, MAX_SPRITE_STEP, t);
+            y = lerp_wrapped(ea[1], eb[1], 0xFF, MAX_SPRITE_STEP, t);
+        } else {
+            x = (xb + camDx) & 0x1FF;
+            y = (eb[1] + camDy) & 0xFF;
+        }
         out[i * 4] = x & 0xFF;
         out[i * 4 + 1] = (uint8_t)y;
         uint8_t *hi = &out[0x200 + (i >> 2)];
@@ -81,7 +96,15 @@ bool smw_render_interpolated(SMWCore *core, uint32_t *pixels, int pitch, float t
 
     static Ppu frame, prev;
     memcpy(frame.vram, c->vram[b], sizeof(frame.vram));
-    interpolate_oam(frame.oam, c->oam[a], c->oam[b], t);
+    // Camera motion, from BG1 scroll on a line below the status bar.
+    memcpy((uint8_t *)&frame + PPU_REG_OFFSET, c->regs[b][VISIBLE_LINES / 2], PPU_REG_SIZE);
+    memcpy((uint8_t *)&prev + PPU_REG_OFFSET, c->regs[a][VISIBLE_LINES / 2], PPU_REG_SIZE);
+    int camDx = ((frame.hofs[0] - prev.hofs[0] + 512) & 0x3FF) - 512;
+    int camDy = ((frame.vofs[0] - prev.vofs[0] + 512) & 0x3FF) - 512;
+    if (abs(camDx) > MAX_SCROLL_STEP || abs(camDy) > MAX_SCROLL_STEP) camDx = camDy = 0;
+    camDx = (int)(camDx * (1 - t) + (camDx >= 0 ? 0.5f : -0.5f));
+    camDy = (int)(camDy * (1 - t) + (camDy >= 0 ? 0.5f : -0.5f));
+    interpolate_oam(frame.oam, c->oam[a], c->oam[b], t, camDx, camDy);
     uint8_t *frameRegs = (uint8_t *)&frame + PPU_REG_OFFSET;
     uint8_t *prevRegs = (uint8_t *)&prev + PPU_REG_OFFSET;
 

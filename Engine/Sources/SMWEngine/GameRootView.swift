@@ -77,6 +77,17 @@ struct GameScreen: View {
                 .padding(24)
                 .allowsHitTesting(false)
             }
+            if let perf = engine.performanceText {
+                VStack {
+                    Text(perf)
+                        .font(.caption.monospacedDigit())
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .padding(.top, 8)
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+            }
             if let toast = engine.toast {
                 VStack {
                     Spacer()

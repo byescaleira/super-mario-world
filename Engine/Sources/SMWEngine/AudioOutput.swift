@@ -30,7 +30,7 @@ final class AudioOutput {
         #if os(iOS) || os(tvOS)
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.ambient, mode: .default)
-        try? session.setPreferredIOBufferDuration(0.005)
+        try? session.setPreferredIOBufferDuration(0.01)
         try? session.setActive(true)
         #endif
         let rate = engine.outputNode.outputFormat(forBus: 0).sampleRate
