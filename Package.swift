@@ -22,7 +22,10 @@ let package = Package(
             dependencies: ["SMWCore"],
             path: "Engine/Sources/SMWEngine",
             resources: [.copy("Resources/Shaders.msl")],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [.swiftLanguageMode(.v6)],
+            // Xcode runs the App Intents extractor on every Swift module and
+            // warns when the framework isn't linked.
+            linkerSettings: [.linkedFramework("AppIntents")]
         ),
         .testTarget(
             name: "SMWEngineTests",

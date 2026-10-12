@@ -54,6 +54,16 @@ public final class GameSettings {
     /// Show more of the level at the sides to fill wide screens.
     public var widescreen: Bool { didSet { save() } }
     public var hdr: Bool { didSet { save() } }
+    #if os(tvOS)
+    // The game's art is SDR: sent as HDR10 / Dolby Vision, a TV shows it dim
+    // and washed out, so the TV now gets SDR unless HDR is turned on. New key,
+    // so installs that saved the old default switch too.
+    private static let hdrKey = "hdr.tv2"
+    private static let hdrDefault = false
+    #else
+    private static let hdrKey = "hdr"
+    private static let hdrDefault = true
+    #endif
     /// Brightest HDR highlight, in multiples of SDR reference white.
     public var hdrPeak: Double { didSet { save() } }
     public var wideGamut: Bool { didSet { save() } }
@@ -80,7 +90,7 @@ public final class GameSettings {
         showTouchControls = defaults.object(forKey: "showTouchControls") as? Bool ?? true
         rewind = defaults.object(forKey: "rewind") as? Bool ?? true
         widescreen = defaults.object(forKey: "widescreen") as? Bool ?? true
-        hdr = defaults.object(forKey: "hdr") as? Bool ?? true
+        hdr = defaults.object(forKey: Self.hdrKey) as? Bool ?? Self.hdrDefault
         hdrPeak = defaults.object(forKey: "hdrPeak") as? Double ?? 2.5
         wideGamut = defaults.object(forKey: "wideGamut") as? Bool ?? false
         motion120 = defaults.object(forKey: "interpolatedFrames") as? Bool ?? false
@@ -102,7 +112,7 @@ public final class GameSettings {
         defaults.set(showTouchControls, forKey: "showTouchControls")
         defaults.set(rewind, forKey: "rewind")
         defaults.set(widescreen, forKey: "widescreen")
-        defaults.set(hdr, forKey: "hdr")
+        defaults.set(hdr, forKey: Self.hdrKey)
         defaults.set(hdrPeak, forKey: "hdrPeak")
         defaults.set(wideGamut, forKey: "wideGamut")
         defaults.set(motion120, forKey: "interpolatedFrames")

@@ -4,6 +4,9 @@ import SwiftUI
 @main
 struct SuperMarioWorldApp: App {
     @State private var engine = GameEngine()
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
+    #endif
 
     var body: some Scene {
         WindowGroup {
@@ -19,6 +22,19 @@ struct SuperMarioWorldApp: App {
         #endif
     }
 }
+
+#if os(iOS)
+import UIKit
+
+/// Landscape only, on iPad too (Info.plist lists every orientation because
+/// iPadOS 26 requires it for windowed multitasking).
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        .landscape
+    }
+}
+#endif
 
 #if os(macOS)
 import AppKit

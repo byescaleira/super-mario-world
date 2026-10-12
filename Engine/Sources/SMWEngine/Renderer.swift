@@ -43,6 +43,9 @@ struct VideoConfig {
     var output: DisplayOutput
     var hdrPeak: Float
     var wideGamut: Bool
+    /// Each frame stays on screen for at least one refresh of the rate asked
+    /// for, so a variable-rate panel can't show some frames shorter than others.
+    var minimumFrameDuration: Double
 }
 
 /// One frame's worth of GPU-visible memory. The core renders straight into
@@ -265,7 +268,11 @@ final class ClassicRenderer: FrameRenderer {
         }
         let semaphore = self.semaphore
         cb.addCompletedHandler { _ in semaphore.signal() }
-        cb.present(drawable)
+        #if targetEnvironment(simulator)
+        cb.present(drawable) // the simulator SDK lacks minimum-duration presents
+        #else
+        cb.present(drawable, afterMinimumDuration: config.minimumFrameDuration)
+        #endif
         cb.commit()
     }
 }

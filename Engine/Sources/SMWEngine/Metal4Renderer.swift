@@ -163,7 +163,7 @@ final class Metal4Renderer: FrameRenderer {
         queue.commit([commandBuffer])
         queue.signalDrawable(drawable)
         queue.signalEvent(frameEvent, value: frameNumber)
-        drawable.present()
+        drawable.present(afterMinimumDuration: config.minimumFrameDuration)
     }
 }
 #endif

@@ -73,6 +73,13 @@ public final class GameEngine {
     @ObservationIgnored private var statsWindowStart: CFTimeInterval = 0
     @ObservationIgnored private var statsTicks = 0
     @ObservationIgnored private var statsFrames = 0
+    @ObservationIgnored private var statsJumps = 0
+    /// Display-link times of this refresh (vsync-quantized; 0 when unknown).
+    @ObservationIgnored private var linkTimestamp: CFTimeInterval = 0
+    @ObservationIgnored private var linkTarget: CFTimeInterval = 0
+    /// Refresh rate the display link asks for: the game's own 60 Hz, or 120 Hz
+    /// for in-between frames on panels that can show them.
+    @ObservationIgnored private(set) var preferredFrameRate: Float = 60
     /// One-line performance readout (Settings → "Mostrar desempenho").
     public private(set) var performanceText: String?
     @ObservationIgnored private let vault = SaveVault()
@@ -164,7 +171,8 @@ public final class GameEngine {
         let peak = output == .sdr ? 1 : min(Float(settings.hdrPeak), max(headroom, 1))
         return VideoConfig(filter: settings.filter, aspect: settings.aspect, crtColors: settings.crtColors,
                            curvature: settings.crtCurvature, scanlines: Float(settings.scanlineStrength),
-                           output: output, hdrPeak: peak, wideGamut: settings.wideGamut)
+                           output: output, hdrPeak: peak, wideGamut: settings.wideGamut,
+                           minimumFrameDuration: tickInterval * 0.9)
     }
 
     /// Margin per side that makes the picture exactly fill the view.
@@ -184,10 +192,11 @@ public final class GameEngine {
         }
         if frameCounter % 60 == 0 {
             headroom = DisplayConfigurator.headroom(of: view)
-            // Ask for 120 Hz where the panel can do it; what we actually get is
-            // measured every refresh (Low Power Mode or ProMotion may give 60).
-            let fps = DisplayConfigurator.maximumFramesPerSecond(of: view) >= 120 ? 120 : 60
-            if view.preferredFramesPerSecond != fps { view.preferredFramesPerSecond = fps }
+            // 60 Hz shows every game frame for exactly one refresh. 120 Hz only
+            // pays off with in-between frames; what we get is still measured
+            // every refresh (Low Power Mode may cap it).
+            let canDo120 = DisplayConfigurator.maximumFramesPerSecond(of: view) >= 120
+            preferredFrameRate = settings.motion120 && canDo120 ? 120 : 60
             if motionCapture != settings.motion120 {
                 motionCapture = settings.motion120
                 core?.setMotionCapture(motionCapture)
@@ -201,11 +210,19 @@ public final class GameEngine {
     /// How many game frames to run this refresh, and how far (0..<1) the
     /// display is past the newest one. Locks to vsync at 60 / 120 Hz (exact
     /// cadence, audio absorbs the 0.16% difference); elsewhere follows the clock.
+    func setDisplayTiming(timestamp: CFTimeInterval, target: CFTimeInterval) {
+        linkTimestamp = timestamp
+        linkTarget = target
+    }
+
     private func pace() -> (frames: Int, phase: Double, refresh: Double) {
-        let now = CACurrentMediaTime()
+        // The display link's target time sits exactly on a vsync, so `dt` is a
+        // whole number of refreshes; the wall clock of the callback is not.
+        let now = linkTarget > 0 ? linkTarget : CACurrentMediaTime()
         let dt = lastTickTime == 0 ? tickInterval : min(max(now - lastTickTime, 0), 0.25)
         lastTickTime = now
-        if dt > 0.002, dt < 0.05 { tickInterval += (dt - tickInterval) * 0.05 }
+        let sample = linkTarget > linkTimestamp ? linkTarget - linkTimestamp : dt
+        if sample > 0.002, sample < 0.05 { tickInterval += (sample - tickInterval) * 0.05 }
         // After a long stall (app switch, heavy system load) don't race to catch
         // up: that only makes the next refresh late too.
         if dt > 0.1 {
@@ -226,6 +243,7 @@ public final class GameEngine {
             let frames = vsyncCounter / perFrame
             vsyncCounter %= perFrame
             clockAccumulator = 0
+            if perFrame == 1 ? frames != 1 : frames > 1 { statsJumps += 1 }
             return (min(frames, 2), Double(vsyncCounter) / Double(perFrame), refresh)
         }
         clockAccumulator += dt
@@ -280,8 +298,8 @@ public final class GameEngine {
         let elapsed = now - statsWindowStart
         if settings.showPerformance {
             let audioMs = Int(Double(smw_audio_ring_fill(audio.ring)) / Double(SMW_AUDIO_RATE) * 1000)
-            performanceText = String(format: "Tela %.0f Hz · jogo %.1f fps · áudio %d ms · falhas %d%@",
-                                     Double(statsTicks) / elapsed, Double(statsFrames) / elapsed, audioMs,
+            performanceText = String(format: "Tela %.0f Hz · jogo %.1f fps · saltos %d · áudio %d ms · falhas %d%@",
+                                     Double(statsTicks) / elapsed, Double(statsFrames) / elapsed, statsJumps, audioMs,
                                      Int(smw_audio_ring_underruns(audio.ring)),
                                      settings.motion120 ? " · interp." : "")
         } else if performanceText != nil {
@@ -290,6 +308,7 @@ public final class GameEngine {
         statsWindowStart = now
         statsTicks = 0
         statsFrames = 0
+        statsJumps = 0
     }
 
     private func emulate(_ core: EmulatorCore, into fb: UnsafeMutablePointer<UInt32>?) {
