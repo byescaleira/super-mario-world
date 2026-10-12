@@ -4,6 +4,8 @@ import SMWCore
 
 public enum MenuInput: Sendable {
     case up, down, left, right, confirm, back, togglePause
+    /// Siri Remote Back: pauses while playing, steps back in the menu.
+    case remoteBack
 }
 
 /// Unifies every input source Apple platforms offer — MFi / Xbox / PlayStation
@@ -186,7 +188,7 @@ public final class InputHub {
     // MARK: Menu navigation (edge-triggered)
 
     private enum MenuBit: UInt32 {
-        case up = 1, down = 2, left = 4, right = 8, confirm = 16, back = 32, pause = 64
+        case up = 1, down = 2, left = 4, right = 8, confirm = 16, back = 32, pause = 64, remoteBack = 128
     }
 
     /// Edge-triggered menu events from every source. Call once per frame.
@@ -208,7 +210,10 @@ public final class InputHub {
             } else if let m = c.microGamepad {
                 set(m.dpad.up.value > 0.5, .up)
                 set(m.dpad.down.value > 0.5, .down)
+                set(m.dpad.left.value > 0.5, .left)
+                set(m.dpad.right.value > 0.5, .right)
                 set(m.buttonA.isPressed, .confirm)
+                set(m.buttonMenu.isPressed, .remoteBack)
             }
         }
         if let k = GCKeyboard.coalesced?.keyboardInput {
@@ -225,6 +230,7 @@ public final class InputHub {
         previousMenuBits = bits
         var out: [MenuInput] = []
         if pressed & MenuBit.pause.rawValue != 0 { out.append(.togglePause) }
+        if pressed & MenuBit.remoteBack.rawValue != 0 { out.append(.remoteBack) }
         if pressed & MenuBit.up.rawValue != 0 { out.append(.up) }
         if pressed & MenuBit.down.rawValue != 0 { out.append(.down) }
         if pressed & MenuBit.left.rawValue != 0 { out.append(.left) }

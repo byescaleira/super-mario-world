@@ -460,6 +460,10 @@ public final class GameEngine {
             togglePause()
             return
         }
+        if event == .remoteBack {
+            if isPaused { menuBack() } else { setPaused(true) }
+            return
+        }
         guard isPaused else { return }
         let count = menuItems.count
         switch event {
@@ -469,7 +473,7 @@ public final class GameEngine {
         case .right: adjust(menuSelection, by: 1)
         case .confirm: activate(menuSelection)
         case .back: menuBack()
-        case .togglePause: break
+        case .togglePause, .remoteBack: break
         }
     }
 

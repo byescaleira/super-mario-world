@@ -115,10 +115,6 @@ struct GameScreen: View {
         .statusBarHidden()
         .defersSystemGestures(on: .all)
         #endif
-        #if os(tvOS)
-        .onExitCommand { engine.isPaused ? engine.menuBack() : engine.setPaused(true) }
-        .onPlayPauseCommand { engine.togglePause() }
-        #endif
     }
 }
 

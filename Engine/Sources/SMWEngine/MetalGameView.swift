@@ -14,6 +14,49 @@ final class GameMTKView: MTKView {
         window?.makeFirstResponder(self)
     }
     #endif
+
+    #if os(tvOS)
+    // On tvOS a controller's B button (○ on DualSense) also arrives as the
+    // UIKit Menu press, which unhandled sends the app to the Home screen. The
+    // game view takes focus and swallows Menu and Play/Pause: the game reads
+    // every button through GameController (the Siri Remote's Back included),
+    // and the TV button still goes Home.
+    override var canBecomeFocused: Bool { true }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let root = self?.window?.rootViewController else { return }
+            root.setNeedsFocusUpdate()
+            root.updateFocusIfNeeded()
+        }
+    }
+
+    private func passThrough(_ presses: Set<UIPress>) -> Set<UIPress> {
+        presses.filter { $0.type != .menu && $0.type != .playPause }
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = passThrough(presses)
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = passThrough(presses)
+        if !rest.isEmpty { super.pressesChanged(rest, with: event) }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = passThrough(presses)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = passThrough(presses)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+    #endif
 }
 
 /// Drives the view from its own display link instead of MTKView's internal
