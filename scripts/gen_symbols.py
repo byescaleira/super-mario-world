@@ -14,6 +14,8 @@ LABELS = [
     # progress, for Game Center achievements and leaderboards
     "ExitsCompleted", "SwitchBlockFlags", "CutsceneID", "DragonCoinsCollected",
     "PlayerScore", "IsTwoPlayerGame",
+    # optional infinite lives
+    "PlayerLives", "SavedPlayerLives",
 ]
 CONSTANTS = {"StatusBarHeight": 36}
 

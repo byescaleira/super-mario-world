@@ -71,6 +71,8 @@ int smw_read_audio(SMWCore *core, int16_t *out, int max_frames);
 
 // Direct views into console memory (for save files and game-aware features).
 const uint8_t *smw_wram(const SMWCore *core);
+// Writes one byte of work RAM (address 0..0x1FFFF), e.g. for player-chosen cheats.
+void smw_poke_wram(SMWCore *core, uint32_t address, uint8_t value);
 uint8_t *smw_sram(SMWCore *core, size_t *length);
 uint64_t smw_frame_count(const SMWCore *core);
 // True if the game changed battery RAM since the last call (it just saved).

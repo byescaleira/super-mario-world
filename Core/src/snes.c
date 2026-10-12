@@ -576,6 +576,8 @@ void smw_set_audio_interpolation(SMWCore *c, SMWAudioInterpolation mode) { c->sn
 
 const uint8_t *smw_wram(const SMWCore *c) { return c->snes.wram; }
 
+void smw_poke_wram(SMWCore *c, uint32_t address, uint8_t value) { c->snes.wram[address & 0x1FFFF] = value; }
+
 uint8_t *smw_sram(SMWCore *c, size_t *length) {
     if (length) *length = c->snes.sramSize;
     return c->snes.sram;

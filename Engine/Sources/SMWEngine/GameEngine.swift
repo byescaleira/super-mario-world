@@ -345,6 +345,30 @@ public final class GameEngine {
         if core.frameCount % 60 == 0 { applyRemoteSaveIfSafe(core) }
     }
 
+    /// Lives counters (current player, saved Mario / Luigi) after the last frame.
+    @ObservationIgnored private var livesSeen: [UInt8] = []
+
+    /// "Vidas infinitas": a counter that drops by exactly one (a death) gets the
+    /// life back right away, before the game can reach game over. 1-UPs still
+    /// count. Off during online play, where both games must stay identical.
+    private func keepLives(_ core: EmulatorCore) {
+        let addresses = [Int(SYM_PlayerLives), Int(SYM_SavedPlayerLives), Int(SYM_SavedPlayerLives) + 1]
+        var now = addresses.map { core.wram($0) }
+        if now.count == livesSeen.count {
+            for i in now.indices where now[i] == livesSeen[i] &- 1 {
+                core.pokeWRAM(addresses[i], livesSeen[i])
+                now[i] = livesSeen[i]
+            }
+        }
+        // With no lives left a death goes straight to game over in the same
+        // frame, so during a level keep at least one.
+        if now[0] == 0, core.wram(Self.gameModeAddress) == Self.gameModeLevel {
+            core.pokeWRAM(addresses[0], 1)
+            now[0] = 1
+        }
+        livesSeen = now
+    }
+
     /// One real frame, optionally followed by run-ahead frames whose output is
     /// shown and then discarded: the screen reflects input 1-2 frames sooner
     /// than the game's own pipeline would, with identical game behavior.
@@ -359,6 +383,7 @@ public final class GameEngine {
             haptics.enabled = settings.haptics
             haptics.handle(events: core.soundEvents, useDevice: input.touchControlsVisible)
         }
+        if settings.infiniteLives, netplay == nil { keepLives(core) }
         if settings.rewind, core.frameCount % 2 == 0 { rewind?.push(core) }
 
         guard ahead > 0 else { return }
@@ -606,6 +631,10 @@ public final class GameEngine {
                 if !v { self?.rewind?.reset() }
             },
             toggleItem("haptics", "Vibração", s.haptics) { s.haptics = $0 },
+            toggleItem("lives", "Vidas infinitas", s.infiniteLives) { [weak self] v in
+                s.infiniteLives = v
+                self?.livesSeen = []
+            },
         ]
         #if !os(tvOS)
         items.append(toggleItem("motion", "Quadros intermediários (120 Hz)", s.motion120) { s.motion120 = $0 })

@@ -22,6 +22,8 @@
 #define SYM_DragonCoinsCollected 0x001420
 #define SYM_PlayerScore 0x000F34
 #define SYM_IsTwoPlayerGame 0x000DB2
+#define SYM_PlayerLives 0x000DBE
+#define SYM_SavedPlayerLives 0x000DB4
 
 #define SMW_StatusBarHeight 36
 

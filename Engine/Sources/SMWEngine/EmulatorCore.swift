@@ -43,6 +43,8 @@ final class EmulatorCore {
         smw_render_interpolated(handle, pixels, Int32(SMW_FRAMEBUFFER_PITCH), t)
     }
 
+    func pokeWRAM(_ address: Int, _ value: UInt8) { smw_poke_wram(handle, UInt32(address), value) }
+
     func setButtons(_ buttons: UInt16, port: Int) { smw_set_buttons(handle, Int32(port), buttons) }
 
     func runFrame() { smw_run_frame(handle) }
