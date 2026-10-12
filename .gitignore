@@ -1,0 +1,16 @@
+.DS_Store
+# Never commit game images or large local files
+joguinho
+*.sfc
+*.smc
+*.srm
+*.state
+Generated/
+# Build output and tools fetched by scripts/build_rom.sh
+build/
+tools/
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/

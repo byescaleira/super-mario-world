@@ -1,0 +1,5 @@
+Super Mario World remaster — build de teste.
+• Jogue com controle Bluetooth (DualSense, Xbox, Switch Pro) ou toque.
+• Configurações no menu de pausa: widescreen, HDR, 120 Hz, filtros, áudio HD.
+• Multijogador: menu de pausa > Multijogador online (SharePlay ou Game Center).
+• Seu save é guardado no aparelho e no iCloud.

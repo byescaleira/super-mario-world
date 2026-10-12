@@ -1,0 +1,5 @@
+Super Mario World remaster — test build.
+• Play with a Bluetooth controller (DualSense, Xbox, Switch Pro) or touch.
+• Pause menu settings: widescreen, HDR, 120 Hz, filters, HD audio.
+• Multiplayer: pause menu > Online multiplayer (SharePlay or Game Center).
+• Your save is kept on device and in iCloud.

@@ -1,0 +1,194 @@
+// Presentation shaders. The game itself is rendered bit-exact by the core;
+// everything here only changes how those pixels reach the display:
+// upscaling to the panel's native resolution (up to 4K), optional CRT
+// emulation, and SDR / EDR / HDR10-PQ output with highlight expansion.
+#include <metal_stdlib>
+using namespace metal;
+
+struct Uniforms {
+    float2 scale;        // NDC half-extent of the game rectangle
+    float2 sourceSize;   // active texels of the texture being sampled
+    float2 outputSize;   // physical pixels covered by the game rectangle
+    float2 uvScale;      // active area / full texture size
+    float colorMode;     // 0 = raw, 1 = CRT-style color response
+    float scanlines;     // 0..1
+    float mask;          // 0..1
+    float curvature;     // 0..1
+    float outputMode;    // 0 = SDR sRGB, 1 = EDR linear Display P3, 2 = HDR10 PQ BT.2020
+    float hdrPeak;       // brightest highlight, in multiples of SDR white
+    float wideGamut;     // 1 = map SNES colors onto P3 primaries (more vivid)
+    float sdrWhiteNits;  // reference white for PQ output (BT.2408: 203)
+};
+
+struct VSOut {
+    float4 position [[position]];
+    float2 uv;
+};
+
+vertex VSOut vs_quad(uint vid [[vertex_id]], constant Uniforms &u [[buffer(0)]]) {
+    const float2 corners[4] = {float2(-1, -1), float2(1, -1), float2(-1, 1), float2(1, 1)};
+    float2 c = corners[vid];
+    VSOut o;
+    o.position = float4(c * u.scale, 0, 1);
+    o.uv = float2((c.x + 1) * 0.5, 1 - (c.y + 1) * 0.5);
+    return o;
+}
+
+constexpr sampler kLinear(filter::linear, address::clamp_to_edge);
+constexpr sampler kNearest(filter::nearest, address::clamp_to_edge);
+
+// ------------------------------------------------------------ color output
+static float3 srgb_to_linear(float3 c) {
+    return select(pow((c + 0.055) / 1.055, 2.4), c / 12.92, c <= 0.04045);
+}
+
+static float3 linear_to_srgb(float3 c) {
+    c = saturate(c);
+    return select(1.055 * pow(c, 1.0 / 2.4) - 0.055, c * 12.92, c <= 0.0031308);
+}
+
+// Row-vector matrices: `v * M` computes dot(v, row) per component.
+constant float3x3 kSRGBtoP3 = float3x3(float3(0.8225, 0.1774, 0.0000), float3(0.0332, 0.9669, 0.0000),
+                                       float3(0.0171, 0.0724, 0.9108));
+constant float3x3 kSRGBto2020 = float3x3(float3(0.6274, 0.3293, 0.0433), float3(0.0691, 0.9195, 0.0114),
+                                         float3(0.0164, 0.0880, 0.8956));
+constant float3x3 kP3to2020 = float3x3(float3(0.7538, 0.1986, 0.0476), float3(0.0457, 0.9418, 0.0125),
+                                       float3(-0.0012, 0.0176, 0.9836));
+
+static float3 rows(float3 v, float3x3 m) { return float3(dot(v, m[0]), dot(v, m[1]), dot(v, m[2])); }
+
+static float3 pq_encode(float3 nits) {
+    const float m1 = 0.1593017578125, m2 = 78.84375, c1 = 0.8359375, c2 = 18.8515625, c3 = 18.6875;
+    float3 y = pow(clamp(nits / 10000.0, 0.0, 1.0), m1);
+    return pow((c1 + c2 * y) / (1 + c3 * y), m2);
+}
+
+// Inverse tone mapping for pixel art: midtones stay at reference white,
+// only bright highlights (coins, fire, light skies) expand into the headroom.
+static float3 expand_highlights(float3 lin, float peak) {
+    if (peak <= 1.001) return lin;
+    float l = dot(lin, float3(0.2627, 0.6780, 0.0593));
+    float t = smoothstep(0.45, 1.0, l);
+    return lin * (1 + (peak - 1) * t * t);
+}
+
+// `c` is display-referred sRGB (gamma encoded, 0..1) as produced by the SNES.
+static float4 encode_output(float3 c, constant Uniforms &u, float boost = 1.0) {
+    if (u.colorMode > 0.5) {
+        // Consumer CRT response: deeper gamma and a touch of channel cross-talk.
+        float3 lin = pow(c, 2.4);
+        lin = rows(lin, float3x3(float3(0.86, 0.10, 0.04), float3(0.06, 0.84, 0.10), float3(0.08, 0.06, 0.86)));
+        c = pow(saturate(lin), 1 / 2.2);
+    }
+    float3 lin = srgb_to_linear(c) * boost;
+    if (u.outputMode < 0.5) return float4(linear_to_srgb(lin), 1);
+
+    lin = expand_highlights(lin, u.hdrPeak);
+    bool vivid = u.wideGamut > 0.5;
+    if (u.outputMode < 1.5) {
+        // EDR: extended linear Display P3, 1.0 = SDR white.
+        return float4(vivid ? lin : rows(lin, kSRGBtoP3), 1);
+    }
+    float3 bt2020 = vivid ? rows(lin, kP3to2020) : rows(lin, kSRGBto2020);
+    return float4(pq_encode(max(bt2020, 0.0) * u.sdrWhiteNits), 1);
+}
+
+// ------------------------------------------------------------------ sharp
+// Sharp bilinear: integer nearest-neighbour prescale followed by a bilinear
+// step that only blends the one-pixel seam between texels. Crisp at any size
+// (e.g. 9.6x at 4K) and free of the uneven pixel widths of nearest filtering.
+static float2 sharp_uv(float2 uv, float2 sourceSize, float2 outputSize) {
+    float2 texel = uv * sourceSize;
+    float2 scale = max(floor(outputSize / sourceSize), 1.0);
+    float2 base = floor(texel);
+    float2 dist = fract(texel) - 0.5;
+    float2 range = 0.5 - 0.5 / scale;
+    float2 f = (dist - clamp(dist, -range, range)) * scale + 0.5;
+    return (base + f) / sourceSize;
+}
+
+fragment float4 fs_sharp(VSOut in [[stage_in]], texture2d<float> src [[texture(0)]],
+                         constant Uniforms &u [[buffer(0)]]) {
+    float3 c = src.sample(kLinear, sharp_uv(in.uv, u.sourceSize, u.outputSize) * u.uvScale).rgb;
+    return encode_output(c, u);
+}
+
+// --------------------------------------------------------------------- CRT
+static float2 warp(float2 uv, float amount, float aspect) {
+    float2 c = uv * 2 - 1;
+    float2 k = float2(0.045, 0.06) * float2(1, aspect / 1.333);
+    c *= 1 + amount * k * (c.yx * c.yx);
+    return (c + 1) * 0.5;
+}
+
+static float3 crt_row(texture2d<float> src, float2 uv, float row, constant Uniforms &u) {
+    float x = uv.x * u.sourceSize.x;
+    float base = floor(x - 0.5) + 0.5;
+    float f = smoothstep(0.15, 0.85, x - 0.5 - floor(x - 0.5));
+    float y = (row + 0.5) / u.sourceSize.y;
+    float3 a = src.sample(kNearest, float2(base / u.sourceSize.x, y) * u.uvScale).rgb;
+    float3 b = src.sample(kNearest, float2((base + 1) / u.sourceSize.x, y) * u.uvScale).rgb;
+    return srgb_to_linear(mix(a, b, f));
+}
+
+static float3 beam(float3 color, float dist, float strength) {
+    float3 width = mix(float3(0.24), float3(0.42), sqrt(color));
+    float3 w = exp(-(dist * dist) / (2 * width * width));
+    return mix(float3(1), w * 1.45, strength);
+}
+
+fragment float4 fs_crt(VSOut in [[stage_in]], texture2d<float> src [[texture(0)]],
+                       constant Uniforms &u [[buffer(0)]]) {
+    float aspect = u.outputSize.x / u.outputSize.y;
+    float2 uv = u.curvature > 0 ? warp(in.uv, u.curvature, aspect) : in.uv;
+    if (any(uv < 0) || any(uv > 1)) return encode_output(float3(0), u);
+    float y = uv.y * u.sourceSize.y - 0.5;
+    float row = floor(y);
+    float fy = y - row;
+    float3 c0 = crt_row(src, uv, row, u);
+    float3 c1 = crt_row(src, uv, row + 1, u);
+    float3 c = c0 * beam(c0, fy, u.scanlines) + c1 * beam(c1, 1 - fy, u.scanlines);
+    uint phase = uint(in.position.x) % 3;
+    float3 grille = phase == 0 ? float3(1, 0.72, 0.72) : (phase == 1 ? float3(0.72, 1, 0.72) : float3(0.72, 0.72, 1));
+    c *= mix(float3(1), grille * 1.18, u.mask);
+    if (u.curvature > 0) {
+        float2 d = uv * (1 - uv.yx);
+        c *= pow(saturate(d.x * d.y * 18), 0.18);
+    }
+    // On HDR displays the beam/mask brightness loss is won back from headroom,
+    // like a real CRT's bright phosphors.
+    float boost = u.outputMode > 0.5 ? 1.35 : 1.0;
+    return encode_output(linear_to_srgb(c), u, boost);
+}
+
+// ------------------------------------------------------- Scale2x (AdvMAME2x)
+static float4 px(texture2d<float, access::read> src, int2 p, int2 size) {
+    return src.read(uint2(clamp(p, int2(0), size - 1)));
+}
+
+static bool same(float4 a, float4 b) { return all(abs(a - b) < 0.001); }
+
+kernel void cs_scale2x(texture2d<float, access::read> src [[texture(0)]],
+                       texture2d<float, access::write> dst [[texture(1)]],
+                       uint2 gid [[thread_position_in_grid]]) {
+    int2 size = int2(src.get_width(), src.get_height());
+    if (int(gid.x) >= size.x || int(gid.y) >= size.y) return;
+    int2 p = int2(gid);
+    float4 B = px(src, p + int2(0, -1), size);
+    float4 D = px(src, p + int2(-1, 0), size);
+    float4 E = px(src, p, size);
+    float4 F = px(src, p + int2(1, 0), size);
+    float4 H = px(src, p + int2(0, 1), size);
+    float4 e0 = E, e1 = E, e2 = E, e3 = E;
+    if (!same(B, H) && !same(D, F)) {
+        e0 = same(D, B) ? D : E;
+        e1 = same(B, F) ? F : E;
+        e2 = same(D, H) ? D : E;
+        e3 = same(H, F) ? F : E;
+    }
+    uint2 o = gid * 2;
+    dst.write(e0, o);
+    dst.write(e1, o + uint2(1, 0));
+    dst.write(e2, o + uint2(0, 1));
+    dst.write(e3, o + uint2(1, 1));
+}

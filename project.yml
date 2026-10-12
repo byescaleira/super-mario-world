@@ -1,0 +1,99 @@
+name: SuperMarioWorld
+options:
+  bundleIdPrefix: com.byescaleira
+  deploymentTarget:
+    iOS: "26.0"
+    macOS: "26.0"
+    tvOS: "26.0"
+  createIntermediateGroups: true
+packages:
+  SMWKit:
+    path: .
+targets:
+  SuperMarioWorld:
+    type: application
+    supportedDestinations: [iOS, macOS, tvOS]
+    sources:
+      - path: App/Shared
+      - path: App/AppIcon.icon
+        type: file
+        buildPhase: resources
+        destinationFilters: [iOS, macOS]
+      - path: App/tvOS/Assets.xcassets
+        buildPhase: resources
+        destinationFilters: [tvOS]
+    dependencies:
+      - package: SMWKit
+        product: SMWEngine
+    preBuildScripts:
+      - name: Assemble ROM from SMWDisX
+        script: |
+          "${SRCROOT}/scripts/build_rom.sh"
+        basedOnDependencyAnalysis: false
+    postCompileScripts:
+      - name: Embed ROM
+        script: |
+          ROM="${SRCROOT}/Generated/smw.sfc"
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          if [ -f "$ROM" ]; then mkdir -p "$DEST" && cp "$ROM" "$DEST/smw.sfc"; fi
+        basedOnDependencyAnalysis: false
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Super Mario World
+        LSApplicationCategoryType: public.app-category.action-games
+        GCSupportsGameMode: true
+        GCSupportsControllerUserInteraction: true
+        GCSupportedGameControllers:
+          - ProfileName: ExtendedGamepad
+          - ProfileName: MicroGamepad
+        UILaunchScreen: {}
+        UIStatusBarHidden: true
+        CADisableMinimumFrameDurationOnPhone: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationLandscapeLeft
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationLandscapeLeft
+        UIUserInterfaceStyle: Dark
+        ITSAppUsesNonExemptEncryption: false
+        NSSupportsGroupActivities: true
+        GKGameCenterBadgingDisabled: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.byescaleira.smw
+        PRODUCT_NAME: SuperMarioWorld
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1,2,3"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: Q7QLR2PH2X
+        CODE_SIGN_ENTITLEMENTS: App/SuperMarioWorld.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletvos*]": "App Icon & Top Shelf Image"
+        "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletvsimulator*]": "App Icon & Top Shelf Image"
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+          GCC_OPTIMIZATION_LEVEL: "s"
+schemes:
+  SuperMarioWorld:
+    build:
+      targets:
+        SuperMarioWorld: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

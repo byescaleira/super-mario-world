@@ -1,0 +1,65 @@
+{
+  "fill": {
+    "solid": "srgb:1.00000,0.90588,0.70980,1.00000"
+  },
+  "groups": [
+    {
+      "name": "Mario",
+      "layers": [
+        {
+          "name": "Mario",
+          "image-name": "Mario.png",
+          "glass": false,
+          "opacity": 1,
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.45
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    },
+    {
+      "name": "Background",
+      "layers": [
+        {
+          "name": "Background",
+          "image-name": "Background.png",
+          "glass": false,
+          "opacity": 1,
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "none",
+        "opacity": 0
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
+  }
+}

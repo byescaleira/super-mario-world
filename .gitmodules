@@ -1,0 +1,3 @@
+[submodule "SMWDisX"]
+	path = SMWDisX
+	url = https://github.com/IsoFrieze/SMWDisX.git
