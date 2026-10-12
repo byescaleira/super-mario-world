@@ -71,6 +71,9 @@ public final class GameSettings {
     /// default: SNES pixels can't move by half a pixel, so steps can look
     /// uneven; with it off each real frame is simply shown twice).
     public var motion120: Bool { didSet { save() } }
+    /// Parallax backgrounds glide at their real speed instead of stepping by
+    /// whole SNES pixels (display only; Pixel Perfect filter).
+    public var smoothParallax: Bool { didSet { save() } }
     public var showPerformance: Bool { didSet { save() } }
 
     private let defaults: UserDefaults
@@ -94,6 +97,7 @@ public final class GameSettings {
         hdrPeak = defaults.object(forKey: "hdrPeak") as? Double ?? 2.5
         wideGamut = defaults.object(forKey: "wideGamut") as? Bool ?? false
         motion120 = defaults.object(forKey: "interpolatedFrames") as? Bool ?? false
+        smoothParallax = defaults.object(forKey: "smoothParallax") as? Bool ?? true
         showPerformance = defaults.object(forKey: "showPerformance") as? Bool ?? false
         loading = false
     }
@@ -116,6 +120,7 @@ public final class GameSettings {
         defaults.set(hdrPeak, forKey: "hdrPeak")
         defaults.set(wideGamut, forKey: "wideGamut")
         defaults.set(motion120, forKey: "interpolatedFrames")
+        defaults.set(smoothParallax, forKey: "smoothParallax")
         defaults.set(showPerformance, forKey: "showPerformance")
     }
 }

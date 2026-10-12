@@ -46,12 +46,17 @@ struct VideoConfig {
     /// Each frame stays on screen for at least one refresh of the rate asked
     /// for, so a variable-rate panel can't show some frames shorter than others.
     var minimumFrameDuration: Double
+    /// Framebuffer samples per SNES pixel (4 with sub-pixel parallax).
+    var samples: Int
 }
 
 /// One frame's worth of GPU-visible memory. The core renders straight into
 /// `pixels`, which aliases `texture` (unified memory, no upload copy).
 struct FrameSlot {
-    static let textureWidth = Int(SMW_MAX_FRAME_WIDTH)
+    /// Framebuffer row: up to 512 SNES pixels × 4 sub-pixel samples.
+    static let textureWidth = Int(SMW_FRAMEBUFFER_PITCH)
+    /// Widest picture in SNES pixels (what Scale4x works on).
+    static let pixelWidth = Int(SMW_MAX_FRAME_WIDTH)
     static let height = Int(SMW_SCREEN_HEIGHT)
     let buffer: MTLBuffer
     let texture: MTLTexture
@@ -126,7 +131,7 @@ enum RendererFactory {
 
     static func makeUpscaleTextures(device: MTLDevice) -> (MTLTexture, MTLTexture) {
         func tex(_ s: Int) -> MTLTexture {
-            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: FrameSlot.textureWidth * s,
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: FrameSlot.pixelWidth * s,
                                                              height: FrameSlot.height * s, mipmapped: false)
             d.storageMode = .private
             d.usage = [.shaderRead, .shaderWrite]
@@ -164,13 +169,18 @@ enum RendererFactory {
         if let ratio = displayAspect(width: activeWidth, aspect: config.aspect) {
             if dw / dh > ratio { w = dh * ratio } else { h = dw / ratio }
         }
-        let factor: Float = config.filter == .smooth ? 4 : 1
-        let source = SIMD2<Float>(Float(activeWidth) * factor, Float(FrameSlot.height) * factor)
+        // Scale4x output is 4× in both directions (its texture spans 512×4
+        // columns); otherwise the framebuffer holds `samples` per pixel.
+        let smooth = config.filter == .smooth
+        let factor: Float = smooth ? 4 : 1
+        let columns = Float(activeWidth * (smooth ? 4 : config.samples))
+        let textureColumns = Float(smooth ? FrameSlot.pixelWidth * 4 : FrameSlot.textureWidth)
+        let source = SIMD2<Float>(columns, Float(FrameSlot.height) * factor)
         return ShaderUniforms(
             scale: [Float(w / dw), Float(h / dh)],
             sourceSize: source,
             outputSize: [Float(w), Float(h)],
-            uvScale: [Float(activeWidth) / Float(FrameSlot.textureWidth), 1],
+            uvScale: [columns / textureColumns, 1],
             colorMode: config.crtColors ? 1 : 0,
             scanlines: config.scanlines,
             mask: config.filter == .crt ? 0.35 : 0,
@@ -246,11 +256,11 @@ final class ClassicRenderer: FrameRenderer {
             ce.setComputePipelineState(scalePipeline)
             ce.setTexture(s.texture, index: 0)
             ce.setTexture(up2x, index: 1)
-            ce.dispatchThreads(MTLSize(width: FrameSlot.textureWidth, height: FrameSlot.height, depth: 1),
+            ce.dispatchThreads(MTLSize(width: FrameSlot.pixelWidth, height: FrameSlot.height, depth: 1),
                                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
             ce.setTexture(up2x, index: 0)
             ce.setTexture(up4x, index: 1)
-            ce.dispatchThreads(MTLSize(width: FrameSlot.textureWidth * 2, height: FrameSlot.height * 2, depth: 1),
+            ce.dispatchThreads(MTLSize(width: FrameSlot.pixelWidth * 2, height: FrameSlot.height * 2, depth: 1),
                                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
             ce.endEncoding()
             source = up4x

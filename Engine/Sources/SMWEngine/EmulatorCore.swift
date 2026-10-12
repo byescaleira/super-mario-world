@@ -23,18 +23,24 @@ final class EmulatorCore {
     func reset(hard: Bool) { smw_reset(handle, hard) }
 
     func setFramebuffer(_ pointer: UnsafeMutablePointer<UInt32>?) {
-        smw_set_framebuffer(handle, pointer, Int32(SMW_MAX_FRAME_WIDTH))
+        smw_set_framebuffer(handle, pointer, Int32(SMW_FRAMEBUFFER_PITCH))
     }
 
     func setWidescreen(_ margin: Int) { smw_set_widescreen(handle, Int32(margin)) }
 
     var frameWidth: Int { Int(smw_frame_width(handle)) }
 
+    /// Samples per SNES pixel in the framebuffer (4 = sub-pixel parallax).
+    var subpixel: Int {
+        get { Int(smw_subpixel(handle)) }
+        set { smw_set_subpixel(handle, Int32(newValue)) }
+    }
+
     func setMotionCapture(_ on: Bool) { smw_set_motion_capture(handle, on) }
 
     /// Draws the moment `t` between the last two displayed frames.
     func renderInterpolated(into pixels: UnsafeMutablePointer<UInt32>, t: Float) -> Bool {
-        smw_render_interpolated(handle, pixels, Int32(SMW_MAX_FRAME_WIDTH), t)
+        smw_render_interpolated(handle, pixels, Int32(SMW_FRAMEBUFFER_PITCH), t)
     }
 
     func setButtons(_ buttons: UInt16, port: Int) { smw_set_buttons(handle, Int32(port), buttons) }

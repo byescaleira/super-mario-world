@@ -64,7 +64,7 @@ imagem acima). Não é interpolação por estimativa de imagem, então não há 
 | **Saves à prova de perda** | O save do cartucho é gravado no quadro seguinte ao jogo salvar, em arquivo + 3 backups + `UserDefaults` + iCloud. A mescla é feita por arquivo do jogo, validando o checksum `$5A5A` do SMW e escolhendo o arquivo com mais saídas concluídas. Apagamentos feitos no jogo são respeitados. Save states são comprimidos (LZFSE), versionados e nunca voltam o save do cartucho. |
 | **Game Center** | Conquistas tiradas do progresso real (saídas, switch palaces, cada Koopaling, Bowser, 5 moedas de dragão) e placar de pontuação. |
 | **Multijogador online** | Modo 2 jogadores (Mario e Luigi) por **SharePlay** ou partida do **Game Center**, com *rollback netplay*: só os botões trafegam, o jogo é determinístico, e quando a previsão erra o jogo volta por save state e reaplica os inputs. Checksums da RAM detectam e corrigem dessincronias. |
-| **Conforto** | Run-ahead (menos latência), rebobinar, avanço rápido, 6 slots com miniatura, retomada de onde parou, áudio HD opcional. |
+| **Conforto** | Fundo com rolagem sub-pixel (camadas de paralaxe deslizam na velocidade real em vez de andar aos trancos de 1 px), run-ahead (menos latência), rebobinar, avanço rápido, 6 slots com miniatura, retomada de onde parou, áudio HD opcional. |
 
 ## 🧰 Tecnologias
 

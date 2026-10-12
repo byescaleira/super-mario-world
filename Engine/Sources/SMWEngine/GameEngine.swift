@@ -54,6 +54,7 @@ public final class GameEngine {
     @ObservationIgnored private var runAheadState: [UInt8] = []
     @ObservationIgnored private var lastFrame = [UInt32](repeating: 0xFF00_0000, count: frameWords)
     @ObservationIgnored private var lastWidth = 256
+    @ObservationIgnored private var lastSubpixel = 1
     @ObservationIgnored private var output: DisplayOutput?
     @ObservationIgnored private var headroom: Float = 1
     /// 120 Hz presentation: the newest emulated frame waits here while its
@@ -92,7 +93,7 @@ public final class GameEngine {
     @ObservationIgnored private var frameCounter = 0
     @ObservationIgnored private var toastTask: Task<Void, Never>?
 
-    private static let frameWords = Int(SMW_MAX_FRAME_WIDTH) * 224
+    private static let frameWords = Int(SMW_FRAMEBUFFER_PITCH) * 224
     private static let frameBytes = frameWords * 4
     private static let maxWideMargin = 112 // limit of tilemap data SMW keeps loaded
 
@@ -172,7 +173,7 @@ public final class GameEngine {
         return VideoConfig(filter: settings.filter, aspect: settings.aspect, crtColors: settings.crtColors,
                            curvature: settings.crtCurvature, scanlines: Float(settings.scanlineStrength),
                            output: output, hdrPeak: peak, wideGamut: settings.wideGamut,
-                           minimumFrameDuration: tickInterval * 0.9)
+                           minimumFrameDuration: tickInterval * 0.9, samples: lastSubpixel)
     }
 
     /// Margin per side that makes the picture exactly fill the view.
@@ -264,12 +265,17 @@ public final class GameEngine {
         let timing = pace()
         if let core, phase == .playing, !isPaused {
             core.setWidescreen(widescreenMargin(for: view))
+            // Scale4x and CRT work on whole pixels; sub-pixel samples only
+            // make sense for the sharp filter.
+            let samples = settings.smoothParallax && settings.filter == .pixelPerfect ? Int(SMW_MAX_SUBPIXEL) : 1
+            if core.subpixel != samples { core.subpixel = samples }
             for i in 0..<timing.frames {
                 // Only the newest frame of a catch-up burst is drawn.
                 emulate(core, into: i == timing.frames - 1 ? pending : nil)
             }
             if timing.frames > 0 {
                 lastWidth = core.frameWidth
+                lastSubpixel = core.subpixel
                 lastFrame.withUnsafeMutableBufferPointer { _ = memcpy($0.baseAddress!, pending, Self.frameBytes) }
             }
             present(core, into: fb, phase: timing.phase, refresh: timing.refresh)
@@ -509,7 +515,8 @@ public final class GameEngine {
         }
         if menuPage == .save {
             let thumb = lastFrame.withUnsafeBufferPointer {
-                SaveStore.image(fromFrame: $0.baseAddress!, width: lastWidth, pitch: Int(SMW_MAX_FRAME_WIDTH))
+                SaveStore.image(fromFrame: $0.baseAddress!, width: lastWidth, pitch: Int(SMW_FRAMEBUFFER_PITCH),
+                                samples: lastSubpixel)
             }
             saves.saveState(core.saveState(), slot: slot, thumbnail: thumb)
             showToast("Estado salvo no slot \(slot)")
@@ -556,6 +563,7 @@ public final class GameEngine {
                      adjust: { [weak self] d in self.map { s.aspect = $0.cycle(s.aspect, d) } }),
         ]
         items.append(toggleItem("wide", "Widescreen (preenche a tela)", s.widescreen) { s.widescreen = $0 })
+        items.append(toggleItem("parallax", "Fundo suave (sub-pixel)", s.smoothParallax) { s.smoothParallax = $0 })
         items.append(toggleItem("hdr", "HDR / Dolby Vision", s.hdr) { s.hdr = $0 })
         if s.hdr {
             items.append(MenuItem(id: "hdrPeak", title: "Brilho HDR dos realces", value: String(format: "%.1f×", s.hdrPeak),

@@ -7,17 +7,21 @@ enum { L_BG1, L_BG2, L_BG3, L_BG4, L_OBJ, L_BACK };
 // Lines are rendered `extra` pixels wider on each side for widescreen. Arrays
 // are indexed by i = x + extra, where x is the classic 0..255 screen column.
 #define MAXW (256 + 2 * PPU_MAX_EXTRA)
+// Composed lines hold `factor` samples per pixel (sub-pixel parallax scroll).
+#define MAXS (MAXW * PPU_MAX_SUBPIXEL)
 
 typedef struct {
-    uint16_t color[MAXW];
-    uint8_t z[MAXW];
-    uint8_t layer[MAXW];
-    uint8_t objMath[MAXW]; // sprite palettes 0-3 never take part in color math
+    uint16_t color[MAXS];
+    uint8_t z[MAXS];
+    uint8_t layer[MAXS];
+    uint8_t objMath[MAXS]; // sprite palettes 0-3 never take part in color math
 } Screen;
 
+// BG lines are rendered one pixel wider on each side (index 0 = x0 - 1) so a
+// sub-pixel shifted layer always has its neighbouring pixel.
 typedef struct {
-    uint8_t pix[MAXW];  // CGRAM index, 0 = transparent
-    uint8_t pri[MAXW];
+    uint8_t pix[MAXW + 2];  // CGRAM index, 0 = transparent
+    uint8_t pri[MAXW + 2];
 } LayerLine;
 
 void ppu_reset(Ppu *p) {
@@ -163,7 +167,12 @@ void ppu_write(Snes *s, uint8_t reg, uint8_t v) {
         /* fallthrough */
     case 0x0F: case 0x11: case 0x13: {
         int bg = (reg - 0x0D) >> 1;
-        p->hofs[bg] = ((v << 8) | (p->ofsLatch & ~7) | ((p->hofs[bg] >> 8) & 7)) & 0x3FF;
+        // The low 3 bits come from the byte written to an H-scroll register
+        // just before (the PPU's second latch), kept here as bits 8-10.
+        // Masking to 10 bits lost bit 10, so every scroll value with bit 2
+        // set showed 4 px off: layers jumped back 3 and ahead 5 while scrolling.
+        // Readers mask to 10 bits.
+        p->hofs[bg] = ((v << 8) | (p->ofsLatch & ~7) | ((p->hofs[bg] >> 8) & 7)) & 0x7FF;
         p->ofsLatch = v;
         break;
     }
@@ -506,17 +515,43 @@ static void render_sprites(Ppu *p, int line, LayerLine *out, int x0, int width) 
 }
 
 // -------------------------------------------------------------- composite
+// Pixel i covers samples i*factor .. i*factor+factor-1. A layer shifted by
+// `shift` samples reads its pixel at (sample + shift) / factor; `pad` is 1 for
+// lines rendered with the extra left pixel.
 static void merge(Screen *scr, const LayerLine *l, int layer, const uint8_t z[4], const uint8_t *mask,
-                  const Ppu *p, int from, int to) {
+                  const Ppu *p, int from, int to, int factor, int shift, int pad) {
+    if (shift == 0) { // unshifted layers: one lookup per pixel
+        for (int i = from; i < to; i++) {
+            uint8_t c = l->pix[i + pad];
+            if (!c || (mask && mask[i])) continue;
+            uint8_t zz = z[layer == L_OBJ ? l->pri[i + pad] : (l->pri[i + pad] & 1)];
+            uint16_t color = p->cgram[c];
+            bool math = layer != L_OBJ || c >= 192;
+            for (int j = i * factor, end = j + factor; j < end; j++) {
+                if (zz > scr->z[j]) {
+                    scr->z[j] = zz;
+                    scr->color[j] = color;
+                    scr->layer[j] = layer;
+                    scr->objMath[j] = math;
+                }
+            }
+        }
+        return;
+    }
     for (int i = from; i < to; i++) {
-        uint8_t c = l->pix[i];
-        if (!c || (mask && mask[i])) continue;
-        uint8_t zz = z[layer == L_OBJ ? l->pri[i] : (l->pri[i] & 1)];
-        if (zz > scr->z[i]) {
-            scr->z[i] = zz;
-            scr->color[i] = p->cgram[c];
-            scr->layer[i] = layer;
-            scr->objMath[i] = layer != L_OBJ || c >= 192;
+        if (mask && mask[i]) continue;
+        for (int k = 0; k < factor; k++) {
+            int src = i + (k + shift) / factor + pad;
+            uint8_t c = l->pix[src];
+            if (!c) continue;
+            int j = i * factor + k;
+            uint8_t zz = z[layer == L_OBJ ? l->pri[src] : (l->pri[src] & 1)];
+            if (zz > scr->z[j]) {
+                scr->z[j] = zz;
+                scr->color[j] = p->cgram[c];
+                scr->layer[j] = layer;
+                scr->objMath[j] = layer != L_OBJ || c >= 192;
+            }
         }
     }
 }
@@ -553,6 +588,7 @@ static inline bool window_region(int mode, bool inside) {
 void ppu_render_line(Snes *s, int line) {
     if (!s->framebuffer || line < 1 || line > VISIBLE_LINES) return;
     if (s->capture) interp_capture_line(s, line);
+    if (line == 1 && snes_subpixel(s)->factor > 1) subpixel_frame(s);
     ppu_draw_line(s, &s->ppu, line, s->framebuffer + (size_t)(line - 1) * s->fbPitch);
 }
 
@@ -560,8 +596,11 @@ void ppu_draw_line(Snes *s, Ppu *p, int line, uint32_t *dst) {
     const int extra = s->wide.extra;
     const int x0 = -extra;
     const int width = 256 + 2 * extra;
+    const SubpixelScroll *sub = snes_subpixel(s);
+    const int factor = sub->factor > 1 ? sub->factor : 1;
+    const int samples = width * factor;
     if (p->inidisp & 0x80) {
-        for (int i = 0; i < width; i++) dst[i] = 0xFF000000u;
+        for (int i = 0; i < samples; i++) dst[i] = 0xFF000000u;
         return;
     }
 
@@ -611,7 +650,7 @@ void ppu_draw_line(Snes *s, Ppu *p, int line, uint32_t *dst) {
     if (mode >= 2) { z[L_OBJ][0] = 6; z[L_OBJ][1] = 8; z[L_OBJ][2] = 10; z[L_OBJ][3] = 12; }
     if (mode == 7) { z[L_OBJ][0] = 1; z[L_OBJ][1] = 6; z[L_OBJ][2] = 9; z[L_OBJ][3] = 12; }
 
-    for (int i = 0; i < width; i++) {
+    for (int i = 0; i < samples; i++) {
         mainS.z[i] = 0;
         mainS.color[i] = p->cgram[0];
         mainS.layer[i] = L_BACK;
@@ -627,13 +666,24 @@ void ppu_draw_line(Snes *s, Ppu *p, int line, uint32_t *dst) {
 
     for (int bg = 0; bg < 4; bg++) {
         if (!(used & (1 << bg))) continue;
+        int shift = 0, pad = 0;
         if (mode == 7) {
             if (bg != 0) continue;
             render_mode7(p, line, &layers[0], x0, width);
         } else {
             if (!bpp[bg]) continue;
-            render_bg(p, bg, bpp[bg], line, &layers[bg], mode == 0 ? bg * 32 : 0, x0, width,
+            // Smoothed parallax layers: whole pixels go into the scroll, the
+            // remainder becomes a sample shift.
+            uint16_t gameHofs = p->hofs[bg];
+            if (factor > 1 && sub->valid && !sub->locked[bg]) {
+                int total = gameHofs * factor + (int)(sub->offset[bg] * factor + 0.5f);
+                p->hofs[bg] = (uint16_t)((total / factor) & 0x3FF);
+                shift = total % factor;
+            }
+            render_bg(p, bg, bpp[bg], line, &layers[bg], mode == 0 ? bg * 32 : 0, x0 - 1, width + 2,
                       s->wide.edgeExtendMask & (1 << bg));
+            p->hofs[bg] = gameHofs;
+            pad = 1;
         }
         int from = 0, to = width;
         if (s->wide.fgMask & (1 << bg)) {
@@ -646,18 +696,22 @@ void ppu_draw_line(Snes *s, Ppu *p, int line, uint32_t *dst) {
             to = extra + 256;
         }
         if (tm & (1 << bg))
-            merge(&mainS, &layers[bg], bg, z[bg], (p->tmw & (1 << bg)) ? masks[bg] : NULL, p, from, to);
+            merge(&mainS, &layers[bg], bg, z[bg], (p->tmw & (1 << bg)) ? masks[bg] : NULL, p, from, to,
+                  factor, shift, pad);
         if (ts & (1 << bg))
-            merge(&subS, &layers[bg], bg, z[bg], (p->tsw & (1 << bg)) ? masks[bg] : NULL, p, from, to);
+            merge(&subS, &layers[bg], bg, z[bg], (p->tsw & (1 << bg)) ? masks[bg] : NULL, p, from, to,
+                  factor, shift, pad);
     }
     if (used & 0x10) {
         render_sprites(p, line, &layers[L_OBJ], x0, width);
         int from = (s->wide.fgMask & 0x10) ? fgFrom : 0;
         int to = (s->wide.fgMask & 0x10) ? fgTo : width;
         if (tm & 0x10)
-            merge(&mainS, &layers[L_OBJ], L_OBJ, z[L_OBJ], (p->tmw & 0x10) ? masks[4] : NULL, p, from, to);
+            merge(&mainS, &layers[L_OBJ], L_OBJ, z[L_OBJ], (p->tmw & 0x10) ? masks[4] : NULL, p, from, to,
+                  factor, 0, 0);
         if (ts & 0x10)
-            merge(&subS, &layers[L_OBJ], L_OBJ, z[L_OBJ], (p->tsw & 0x10) ? masks[4] : NULL, p, from, to);
+            merge(&subS, &layers[L_OBJ], L_OBJ, z[L_OBJ], (p->tsw & 0x10) ? masks[4] : NULL, p, from, to,
+                  factor, 0, 0);
     }
 
     // Brightness lookup: 5-bit channel -> 8-bit with master brightness.
@@ -675,18 +729,19 @@ void ppu_draw_line(Snes *s, Ppu *p, int line, uint32_t *dst) {
     bool halfEnable = p->cgadsub & 0x40;
     const uint8_t *colorWin = masks[5];
 
-    for (int i = 0; i < width; i++) {
-        uint16_t c = mainS.color[i];
-        int layer = mainS.layer[i];
+    for (int j = 0; j < samples; j++) {
+        int i = j / factor;
+        uint16_t c = mainS.color[j];
+        int layer = mainS.layer[j];
         bool inside = colorWin[i];
         bool clipped = window_region(clipMode, inside);
         if (clipped) c = 0;
-        bool mathOn = !window_region(preventMode, inside) && (p->cgadsub & (1 << layer)) && mainS.objMath[i];
+        bool mathOn = !window_region(preventMode, inside) && (p->cgadsub & (1 << layer)) && mainS.objMath[j];
         if (mathOn) {
             uint16_t other;
             bool half = halfEnable && !clipped;
-            if (addSub && subS.layer[i] != L_BACK) {
-                other = subS.color[i];
+            if (addSub && subS.layer[j] != L_BACK) {
+                other = subS.color[j];
             } else {
                 other = p->fixedColor;
                 if (addSub) half = false;
@@ -694,10 +749,10 @@ void ppu_draw_line(Snes *s, Ppu *p, int line, uint32_t *dst) {
             c = blend(c, other, subtract, half);
         }
         if (s->debugTransparentBackdrop && layer == L_BACK) {
-            dst[i] = 0;
+            dst[j] = 0;
             continue;
         }
-        dst[i] = 0xFF000000u | ((uint32_t)lut[c & 31] << 16) | ((uint32_t)lut[(c >> 5) & 31] << 8) |
+        dst[j] = 0xFF000000u | ((uint32_t)lut[c & 31] << 16) | ((uint32_t)lut[(c >> 5) & 31] << 8) |
                  lut[(c >> 10) & 31];
     }
 }

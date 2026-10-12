@@ -188,6 +188,30 @@ typedef struct {
 
 void widescreen_frame(Snes *s);
 
+// ------------------------------------------------- Sub-pixel parallax scroll
+// Display only. The game scrolls by whole pixels, so a background layer at
+// parallax speed (half of 1.25 px/frame when walking) steps 1,1,0,1,0... and
+// visibly shakes once each SNES pixel is several screen pixels wide. With
+// `factor` > 1, lines are composed at `factor` samples per pixel and those
+// layers follow a smoothed position within the game's own pixel.
+#define PPU_MAX_SUBPIXEL 4
+enum { SUBPIXEL_HISTORY = 16 };
+typedef struct {
+    int factor;                 // samples per pixel: 1 = off
+    bool valid;
+    uint16_t prevHofs[4];
+    float offset[4];            // smoothed position minus the game's, 0..<1 px
+    float velocity[4];          // px/frame, averaged
+    uint8_t diff[4][SUBPIXEL_HISTORY]; // |layer step - BG1 step| per frame
+    uint8_t move[SUBPIXEL_HISTORY];    // |BG1 step| per frame
+    int histPos;
+    bool locked[4];             // moves with BG1 (or not at all): drawn as the game does
+} SubpixelScroll;
+
+void subpixel_frame(Snes *s);
+// Lives outside the Snes struct so save states keep their size and format.
+SubpixelScroll *snes_subpixel(Snes *s);
+
 // ---------------------------------------------------------------- Machine
 struct Snes {
     Cpu cpu;

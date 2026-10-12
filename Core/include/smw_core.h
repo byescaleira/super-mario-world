@@ -53,6 +53,15 @@ void smw_set_buttons(SMWCore *core, int port, uint16_t buttons);
 void smw_set_widescreen(SMWCore *core, int extra);
 int smw_frame_width(const SMWCore *core);
 
+// Sub-pixel parallax scroll (display only): with 4, every line is written as
+// smw_frame_width() * 4 samples and background layers that scroll at a
+// different speed than layer 1 move smoothly instead of in uneven whole-pixel
+// steps. The framebuffer pitch must then be >= SMW_FRAMEBUFFER_PITCH.
+#define SMW_MAX_SUBPIXEL 4
+#define SMW_FRAMEBUFFER_PITCH (SMW_MAX_FRAME_WIDTH * SMW_MAX_SUBPIXEL)
+void smw_set_subpixel(SMWCore *core, int samplesPerPixel);
+int smw_subpixel(const SMWCore *core);
+
 // Emulates exactly one video frame (262 scanlines).
 void smw_run_frame(SMWCore *core);
 

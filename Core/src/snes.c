@@ -21,6 +21,7 @@ struct SMWCore {
     Snes snes;
     uint8_t *romCopy;
     bool doneIrq, doneRender, doneHdma;
+    SubpixelScroll sub; // display only, not saved: run-ahead loads a state every frame
 };
 
 static inline SMWCore *core_of(Snes *s) { return (SMWCore *)s; }
@@ -525,6 +526,18 @@ const uint16_t *smw_debug_cgram(const SMWCore *c) { return c->snes.ppu.cgram; }
 const uint8_t *smw_debug_oam(const SMWCore *c) { return c->snes.ppu.oam; }
 
 int smw_frame_width(const SMWCore *c) { return 256 + 2 * c->snes.wide.extra; }
+
+SubpixelScroll *snes_subpixel(Snes *s) { return &core_of(s)->sub; }
+
+void smw_set_subpixel(SMWCore *c, int samples) {
+    int f = samples >= PPU_MAX_SUBPIXEL ? PPU_MAX_SUBPIXEL : 1;
+    if (f != c->sub.factor) {
+        memset(&c->sub, 0, sizeof(c->sub));
+        c->sub.factor = f;
+    }
+}
+
+int smw_subpixel(const SMWCore *c) { return c->sub.factor > 1 ? c->sub.factor : 1; }
 
 void smw_set_buttons(SMWCore *c, int port, uint16_t buttons) {
     if (port >= 0 && port < 4) c->snes.buttons[port] = buttons;

@@ -129,13 +129,13 @@ final class Metal4Renderer: FrameRenderer {
             computeTable.setTexture(s.texture.gpuResourceID, index: 0)
             computeTable.setTexture(up2x.gpuResourceID, index: 1)
             ce.setArgumentTable(computeTable)
-            ce.dispatchThreads(threadsPerGrid: MTLSize(width: FrameSlot.textureWidth, height: FrameSlot.height, depth: 1),
+            ce.dispatchThreads(threadsPerGrid: MTLSize(width: FrameSlot.pixelWidth, height: FrameSlot.height, depth: 1),
                                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
             ce.barrier(afterEncoderStages: .dispatch, beforeEncoderStages: .dispatch, visibilityOptions: .device)
             computeTable.setTexture(up2x.gpuResourceID, index: 0)
             computeTable.setTexture(up4x.gpuResourceID, index: 1)
             ce.setArgumentTable(computeTable)
-            ce.dispatchThreads(threadsPerGrid: MTLSize(width: FrameSlot.textureWidth * 2, height: FrameSlot.height * 2, depth: 1),
+            ce.dispatchThreads(threadsPerGrid: MTLSize(width: FrameSlot.pixelWidth * 2, height: FrameSlot.height * 2, depth: 1),
                                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
             ce.endEncoding()
             source = up4x

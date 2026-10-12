@@ -16,7 +16,7 @@ static int gWidth = 256;
 
 static void write_png(const char *path, const uint32_t *px) {
     CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-    CGContextRef ctx = CGBitmapContextCreate((void *)px, gWidth, 224, 8, 512 * 4, cs,
+    CGContextRef ctx = CGBitmapContextCreate((void *)px, gWidth, 224, 8, SMW_FRAMEBUFFER_PITCH * 4, cs,
                                              kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
     CGImageRef img = CGBitmapContextCreateImage(ctx);
     CFStringRef s = CFStringCreateWithCString(NULL, path, kCFStringEncodingUTF8);
@@ -49,10 +49,10 @@ static void write_wav(const char *path, const int16_t *data, int frames) {
 
 int main(int argc, char **argv) {
     if (argc < 4) {
-        fprintf(stderr, "usage: %s rom frames outdir [script] [--wide N] [--load f] [--save f]\n", argv[0]);
+        fprintf(stderr, "usage: %s rom frames outdir [script] [--wide N] [--load f] [--save f] [--subpixel]\n", argv[0]);
         return 1;
     }
-    int wide = 0, hideMask = -1, nforce = 0, opaque = 0, interp = 0;
+    int wide = 0, hideMask = -1, nforce = 0, opaque = 0, interp = 0, subpixel = 1;
     unsigned forceAddr[4], forceVal[4];
     const char *loadPath = NULL, *savePath = NULL, *wramPath = NULL;
     for (int i = 4; i < argc; i++) {
@@ -67,6 +67,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--hide") && i + 1 < argc) hideMask = (int)strtol(argv[++i], NULL, 16);
         else if (!strcmp(argv[i], "--opaque")) opaque = 1;
         else if (!strcmp(argv[i], "--interp")) interp = 1;
+        else if (!strcmp(argv[i], "--subpixel")) subpixel = SMW_MAX_SUBPIXEL;
     }
     FILE *f = fopen(argv[1], "rb");
     if (!f) { perror("rom"); return 1; }
@@ -95,12 +96,13 @@ int main(int argc, char **argv) {
     }
 
     SMWCore *core = smw_create(rom, len);
-    static uint32_t fb[512 * 224];
-    smw_set_framebuffer(core, fb, 512);
+    static uint32_t fb[SMW_FRAMEBUFFER_PITCH * 224];
+    smw_set_framebuffer(core, fb, SMW_FRAMEBUFFER_PITCH);
+    smw_set_subpixel(core, subpixel);
     smw_set_widescreen(core, wide);
     if (interp) smw_set_motion_capture(core, true);
     if (hideMask >= 0) smw_debug_layers(core, (uint8_t)hideMask, !opaque);
-    gWidth = smw_frame_width(core);
+    gWidth = smw_frame_width(core) * smw_subpixel(core);
     if (loadPath) {
         FILE *lf = fopen(loadPath, "rb");
         size_t n = smw_state_size();
@@ -127,8 +129,8 @@ int main(int argc, char **argv) {
             snprintf(path, sizeof path, "%s/frame_%05d.png", out, i);
             write_png(path, fb);
             if (interp) {
-                static uint32_t mid[512 * 224];
-                if (smw_render_interpolated(core, mid, 512, 0.5f)) {
+                static uint32_t mid[SMW_FRAMEBUFFER_PITCH * 224];
+                if (smw_render_interpolated(core, mid, SMW_FRAMEBUFFER_PITCH, 0.5f)) {
                     snprintf(path, sizeof path, "%s/frame_%05d_mid.png", out, i);
                     write_png(path, mid);
                 }

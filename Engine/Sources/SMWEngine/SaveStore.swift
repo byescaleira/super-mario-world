@@ -64,11 +64,18 @@ final class SaveStore {
     }
 
     /// Copies a BGRA frame (`width` columns of a `pitch`-wide buffer) into a CGImage.
-    static func image(fromFrame pixels: UnsafePointer<UInt32>, width: Int, pitch: Int) -> CGImage? {
-        let data = Data(bytes: pixels, count: pitch * 224 * 4)
+    /// `samples` > 1: the frame holds that many samples per pixel; one is kept.
+    static func image(fromFrame pixels: UnsafePointer<UInt32>, width: Int, pitch: Int, samples: Int = 1) -> CGImage? {
+        var data = Data(count: width * 224 * 4)
+        data.withUnsafeMutableBytes { raw in
+            let out = raw.bindMemory(to: UInt32.self)
+            for y in 0..<224 {
+                for x in 0..<width { out[y * width + x] = pixels[y * pitch + x * samples] }
+            }
+        }
         guard let provider = CGDataProvider(data: data as CFData) else { return nil }
         let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-        return CGImage(width: width, height: 224, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: pitch * 4,
+        return CGImage(width: width, height: 224, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
                        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: info, provider: provider,
                        decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
