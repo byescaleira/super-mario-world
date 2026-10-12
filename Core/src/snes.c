@@ -522,6 +522,8 @@ void smw_debug_force_wram(SMWCore *c, uint32_t address, int value) {
 
 const uint16_t *smw_debug_cgram(const SMWCore *c) { return c->snes.ppu.cgram; }
 
+const uint8_t *smw_debug_oam(const SMWCore *c) { return c->snes.ppu.oam; }
+
 int smw_frame_width(const SMWCore *c) { return 256 + 2 * c->snes.wide.extra; }
 
 void smw_set_buttons(SMWCore *c, int port, uint16_t buttons) {

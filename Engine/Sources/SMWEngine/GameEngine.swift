@@ -186,7 +186,7 @@ public final class GameEngine {
             headroom = DisplayConfigurator.headroom(of: view)
             // Ask for 120 Hz where the panel can do it; what we actually get is
             // measured every refresh (Low Power Mode or ProMotion may give 60).
-            let fps = settings.motion120 && DisplayConfigurator.maximumFramesPerSecond(of: view) >= 120 ? 120 : 60
+            let fps = DisplayConfigurator.maximumFramesPerSecond(of: view) >= 120 ? 120 : 60
             if view.preferredFramesPerSecond != fps { view.preferredFramesPerSecond = fps }
             if motionCapture != settings.motion120 {
                 motionCapture = settings.motion120
@@ -280,9 +280,10 @@ public final class GameEngine {
         let elapsed = now - statsWindowStart
         if settings.showPerformance {
             let audioMs = Int(Double(smw_audio_ring_fill(audio.ring)) / Double(SMW_AUDIO_RATE) * 1000)
-            performanceText = String(format: "Tela %.0f Hz · jogo %.1f fps · áudio %d ms · falhas %d",
+            performanceText = String(format: "Tela %.0f Hz · jogo %.1f fps · áudio %d ms · falhas %d%@",
                                      Double(statsTicks) / elapsed, Double(statsFrames) / elapsed, audioMs,
-                                     Int(smw_audio_ring_underruns(audio.ring)))
+                                     Int(smw_audio_ring_underruns(audio.ring)),
+                                     settings.motion120 ? " · interp." : "")
         } else if performanceText != nil {
             performanceText = nil
         }
@@ -576,7 +577,7 @@ public final class GameEngine {
             toggleItem("haptics", "Vibração", s.haptics) { s.haptics = $0 },
         ]
         #if !os(tvOS)
-        items.append(toggleItem("motion", "Movimento 120 Hz (ProMotion)", s.motion120) { s.motion120 = $0 })
+        items.append(toggleItem("motion", "Quadros intermediários (120 Hz)", s.motion120) { s.motion120 = $0 })
         #endif
         #if os(iOS)
         items.append(toggleItem("touch", "Controles na tela", s.showTouchControls) { [weak self] v in

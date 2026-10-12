@@ -57,7 +57,9 @@ public final class GameSettings {
     /// Brightest HDR highlight, in multiples of SDR reference white.
     public var hdrPeak: Double { didSet { save() } }
     public var wideGamut: Bool { didSet { save() } }
-    /// 120 Hz presentation with interpolated in-between frames.
+    /// On 120 Hz screens, show PPU-rendered in-between frames (off by
+    /// default: SNES pixels can't move by half a pixel, so steps can look
+    /// uneven; with it off each real frame is simply shown twice).
     public var motion120: Bool { didSet { save() } }
     public var showPerformance: Bool { didSet { save() } }
 
@@ -81,7 +83,7 @@ public final class GameSettings {
         hdr = defaults.object(forKey: "hdr") as? Bool ?? true
         hdrPeak = defaults.object(forKey: "hdrPeak") as? Double ?? 2.5
         wideGamut = defaults.object(forKey: "wideGamut") as? Bool ?? false
-        motion120 = defaults.object(forKey: "motion120") as? Bool ?? true
+        motion120 = defaults.object(forKey: "interpolatedFrames") as? Bool ?? false
         showPerformance = defaults.object(forKey: "showPerformance") as? Bool ?? false
         loading = false
     }
@@ -103,7 +105,7 @@ public final class GameSettings {
         defaults.set(hdr, forKey: "hdr")
         defaults.set(hdrPeak, forKey: "hdrPeak")
         defaults.set(wideGamut, forKey: "wideGamut")
-        defaults.set(motion120, forKey: "motion120")
+        defaults.set(motion120, forKey: "interpolatedFrames")
         defaults.set(showPerformance, forKey: "showPerformance")
     }
 }

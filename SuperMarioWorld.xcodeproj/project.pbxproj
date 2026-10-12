@@ -18,7 +18,7 @@
 		834277726E838C6CA9095331 /* super-mario-world */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "super-mario-world"; path = .; sourceTree = SOURCE_ROOT; };
 		8A73562503DDDE02968BCFF0 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		F7F70DE1BCE93A82E605554D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		FE65C477FD44C301523E1CEF /* SuperMarioWorld.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SuperMarioWorld.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FE65C477FD44C301523E1CEF /* SuperMarioWorld.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; name = SuperMarioWorld.app; path = Mario.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */

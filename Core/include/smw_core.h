@@ -91,6 +91,7 @@ bool smw_render_interpolated(SMWCore *core, uint32_t *pixels, int pitch, float t
 // OBJ) and optionally output the backdrop as transparent pixels.
 void smw_debug_layers(SMWCore *core, uint8_t hideMask, bool transparentBackdrop);
 const uint16_t *smw_debug_cgram(const SMWCore *core); // 256 BGR555 colors
+const uint8_t *smw_debug_oam(const SMWCore *core);    // 544 bytes of PPU OAM
 // Pins a WRAM byte: every write stores `value` instead (value < 0 clears all).
 void smw_debug_force_wram(SMWCore *core, uint32_t address, int value);
 

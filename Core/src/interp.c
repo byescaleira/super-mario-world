@@ -105,6 +105,13 @@ bool smw_render_interpolated(SMWCore *core, uint32_t *pixels, int pitch, float t
     camDx = (int)(camDx * (1 - t) + (camDx >= 0 ? 0.5f : -0.5f));
     camDy = (int)(camDy * (1 - t) + (camDy >= 0 ? 0.5f : -0.5f));
     interpolate_oam(frame.oam, c->oam[a], c->oam[b], t, camDx, camDy);
+
+    // Level-edge clipping in the widescreen margins follows the in-between
+    // camera too, or the edge of the level would step back and forth.
+    Widescreen saved = s->wide;
+    int clampL = s->wide.fgLeft - camDx, clampR = s->wide.fgRight + camDx;
+    s->wide.fgLeft = clampL < 0 ? 0 : (clampL > s->wide.extra ? s->wide.extra : clampL);
+    s->wide.fgRight = clampR < 0 ? 0 : (clampR > s->wide.extra ? s->wide.extra : clampR);
     uint8_t *frameRegs = (uint8_t *)&frame + PPU_REG_OFFSET;
     uint8_t *prevRegs = (uint8_t *)&prev + PPU_REG_OFFSET;
 
@@ -122,5 +129,6 @@ bool smw_render_interpolated(SMWCore *core, uint32_t *pixels, int pitch, float t
         }
         ppu_draw_line(s, &frame, line, pixels + (size_t)(line - 1) * pitch);
     }
+    s->wide = saved;
     return true;
 }
