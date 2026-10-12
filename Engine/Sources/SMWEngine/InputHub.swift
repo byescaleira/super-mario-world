@@ -30,6 +30,15 @@ public final class InputHub {
     @ObservationIgnored var onControllerDisconnected: ((GCController) -> Void)?
 
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    /// Keys held according to UIKit (HID usages, same values as GCKeyCode).
+    /// On iPad GCKeyboard can stay silent until the app has keyboard focus, so
+    /// the game view also reports the presses it receives as first responder.
+    @ObservationIgnored private var uiKeys = Set<Int>()
+    /// Keys pressed since the last frame: a tap shorter than a frame still counts.
+    @ObservationIgnored private var uiTapped = Set<Int>()
+    /// The keyboard was the last thing used: on-screen controls step aside
+    /// until the screen is touched again.
+    @ObservationIgnored private var keyboardInUse = false
     @ObservationIgnored private var previousMenuBits: UInt32 = 0
 
     public init() {
@@ -73,11 +82,54 @@ public final class InputHub {
         print("[input] controllers:", controllers.map { "\($0.vendorName ?? "?") ext=\($0.extendedGamepad != nil)" },
               "keyboard:", hasKeyboard)
         #endif
+        updateTouchControls()
+    }
+
+    private func updateTouchControls() {
         #if os(iOS)
         let forced = ProcessInfo.processInfo.arguments.contains("-SMWForceTouchControls")
-        touchControlsVisible = wantsTouchControls && (!hasPhysicalController || forced)
+        let visible = wantsTouchControls && ((!hasPhysicalController && !keyboardInUse) || forced)
+        if visible != touchControlsVisible { touchControlsVisible = visible }
         if !touchControlsVisible { touchPad = 0 }
         #endif
+    }
+
+    /// A key went down or up on the game view (UIKit presses).
+    func keyChanged(_ usage: Int, down: Bool) {
+        if down {
+            uiKeys.insert(usage)
+            uiTapped.insert(usage)
+            keyboardUsed()
+        } else {
+            uiKeys.remove(usage)
+        }
+    }
+
+    /// Focus left the game view: forget held keys so none stays stuck.
+    func releaseKeys() {
+        uiKeys.removeAll()
+        uiTapped.removeAll()
+    }
+
+    /// Called once per frame, after every input source was read.
+    func endFrame() { uiTapped.removeAll() }
+
+    /// The screen was touched outside the on-screen controls.
+    func screenTouched() {
+        guard keyboardInUse else { return }
+        keyboardInUse = false
+        updateTouchControls()
+    }
+
+    private func keyboardUsed() {
+        guard !keyboardInUse else { return }
+        keyboardInUse = true
+        updateTouchControls()
+    }
+
+    private func isDown(_ code: GCKeyCode, _ k: GCKeyboardInput?) -> Bool {
+        uiKeys.contains(code.rawValue) || uiTapped.contains(code.rawValue)
+            || k?.button(forKeyCode: code)?.isPressed == true
     }
 
     /// Per-controller touches: Mario-red light bar, PS / Home button routed to
@@ -143,10 +195,11 @@ public final class InputHub {
     }
 
     private func readKeyboard() -> UInt16 {
-        guard let k = GCKeyboard.coalesced?.keyboardInput else { return 0 }
+        let k = GCKeyboard.coalesced?.keyboardInput
+        guard k != nil || !uiKeys.isEmpty || !uiTapped.isEmpty else { return 0 }
         var b: UInt16 = 0
         func key(_ code: GCKeyCode, _ bit: Int) {
-            if k.button(forKeyCode: code)?.isPressed == true { b |= UInt16(bit) }
+            if isDown(code, k) { b |= UInt16(bit) }
         }
         key(.upArrow, SMW_BTN_UP)
         key(.downArrow, SMW_BTN_DOWN)
@@ -161,6 +214,7 @@ public final class InputHub {
         key(.returnOrEnter, SMW_BTN_START)
         key(.rightShift, SMW_BTN_SELECT)
         key(.tab, SMW_BTN_SELECT)
+        if b != 0 { keyboardUsed() }
         return b
     }
 
@@ -178,10 +232,9 @@ public final class InputHub {
                 ff = ff || g.rightTrigger.value > 0.5
             }
         }
-        if let k = GCKeyboard.coalesced?.keyboardInput {
-            rewind = rewind || k.button(forKeyCode: .deleteOrBackspace)?.isPressed == true
-            ff = ff || k.button(forKeyCode: .graveAccentAndTilde)?.isPressed == true
-        }
+        let k = GCKeyboard.coalesced?.keyboardInput
+        rewind = rewind || isDown(.deleteOrBackspace, k)
+        ff = ff || isDown(.graveAccentAndTilde, k)
         return (rewind, ff)
     }
 
@@ -216,8 +269,9 @@ public final class InputHub {
                 set(m.buttonMenu.isPressed, .remoteBack)
             }
         }
-        if let k = GCKeyboard.coalesced?.keyboardInput {
-            func key(_ code: GCKeyCode, _ bit: MenuBit) { set(k.button(forKeyCode: code)?.isPressed == true, bit) }
+        do {
+            let k = GCKeyboard.coalesced?.keyboardInput
+            func key(_ code: GCKeyCode, _ bit: MenuBit) { set(isDown(code, k), bit) }
             key(.upArrow, .up)
             key(.downArrow, .down)
             key(.leftArrow, .left)

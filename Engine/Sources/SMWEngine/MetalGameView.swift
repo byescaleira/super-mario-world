@@ -15,6 +15,64 @@ final class GameMTKView: MTKView {
     }
     #endif
 
+    #if os(iOS)
+    // iPad hardware keyboards: the game view is first responder, so key
+    // presses reach the app without tapping the screen first; they are
+    // reported to InputHub alongside GCKeyboard.
+    var onKey: ((Int, Bool) -> Void)?
+    var onTouch: (() -> Void)?
+    var onResign: (() -> Void)?
+
+    override var canBecomeFirstResponder: Bool { true }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        DispatchQueue.main.async { [weak self] in self?.takeKeyboardFocus() }
+    }
+
+    /// Key window + first responder: where iPadOS delivers hardware keys.
+    func takeKeyboardFocus() {
+        guard let window else { return }
+        if !window.isKeyWindow { window.makeKey() }
+        if !isFirstResponder { _ = becomeFirstResponder() }
+    }
+
+    override func resignFirstResponder() -> Bool {
+        onResign?()
+        return super.resignFirstResponder()
+    }
+
+    private func report(_ presses: Set<UIPress>, down: Bool) -> Set<UIPress> {
+        var rest = Set<UIPress>()
+        for press in presses {
+            if let key = press.key { onKey?(key.keyCode.rawValue, down) } else { rest.insert(press) }
+        }
+        return rest
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = report(presses, down: true)
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = report(presses, down: false)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = report(presses, down: false)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        onTouch?()
+        takeKeyboardFocus()
+        super.touchesBegan(touches, with: event)
+    }
+    #endif
+
     #if os(tvOS)
     // On tvOS a controller's B button (○ on DualSense) also arrives as the
     // UIKit Menu press, which unhandled sends the app to the Home screen. The
@@ -69,6 +127,7 @@ final class GameViewCoordinator: NSObject, MTKViewDelegate {
     private weak var view: MTKView?
     private var link: CADisplayLink?
     private var linkRate: Float = 0
+    private var observers: [NSObjectProtocol] = []
     init(engine: GameEngine) { self.engine = engine }
 
     func makeView() -> MTKView {
@@ -81,6 +140,18 @@ final class GameViewCoordinator: NSObject, MTKViewDelegate {
         view.delegate = self
         self.view = view
         engine.attach(view: view)
+        #if os(iOS)
+        let input = engine.input
+        view.onKey = { usage, down in input.keyChanged(usage, down: down) }
+        view.onTouch = { input.screenTouched() }
+        view.onResign = { input.releaseKeys() }
+        // Take keyboard focus back whenever the app or its window is active again.
+        for name in [UIScene.didActivateNotification, UIWindow.didBecomeKeyNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak view] _ in
+                MainActor.assumeIsolated { view?.takeKeyboardFocus() }
+            })
+        }
+        #endif
         #if os(macOS)
         let link = view.displayLink(target: self, selector: #selector(step(_:)))
         #else
@@ -94,6 +165,8 @@ final class GameViewCoordinator: NSObject, MTKViewDelegate {
     func stop() {
         link?.invalidate()
         link = nil
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
     }
 
     @objc private func step(_ link: CADisplayLink) {

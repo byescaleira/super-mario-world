@@ -280,8 +280,11 @@ public final class GameEngine {
             }
             present(core, into: fb, phase: timing.phase, refresh: timing.refresh)
             updateStats(frames: timing.frames, refresh: timing.refresh)
+            // Short key taps are kept until a game frame has read them.
+            if timing.frames > 0 { input.endFrame() }
         } else {
             lastFrame.withUnsafeBufferPointer { _ = memcpy(fb, $0.baseAddress!, Self.frameBytes) }
+            input.endFrame()
         }
         renderer.draw(slot: slot, activeWidth: lastWidth, in: view, config: videoConfig(output: output))
     }
