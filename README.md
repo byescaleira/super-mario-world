@@ -125,6 +125,19 @@ swift test
 notas de teste. No Xcode: **Integrate → Create Workflow** com a ação *Archive* (iOS, macOS e tvOS) e
 pós-ação *TestFlight Internal Testing*.
 
+### 🏆 Game Center (App Store Connect)
+
+Crie estes itens em **App Store Connect → seu app → Game Center** com os mesmos IDs:
+
+| Tipo | ID | Quando desbloqueia |
+| --- | --- | --- |
+| Conquista | `smw.exits.first`, `smw.exits.half`, `smw.exits.all` | 1, 48 e 96 saídas (`ExitsCompleted`) |
+| Conquista | `smw.switch.green`, `smw.switch.yellow`, `smw.switch.blue`, `smw.switch.red`, `smw.switch.all` | Switch palaces (`SwitchBlockFlags`) |
+| Conquista | `smw.castle.iggy` … `smw.castle.larry` (iggy, morton, lemmy, ludwig, roy, wendy, larry) | Cena do castelo destruído (`CutsceneID` 1–7) |
+| Conquista | `smw.bowser` | Créditos finais (`CutsceneID` 8) |
+| Conquista | `smw.dragoncoins` | 5 moedas de dragão numa fase |
+| Placar | `smw.score` | Pontuação (`PlayerScore` × 10) |
+
 ## 🎮 Controles
 
 | Ação | DualSense | Xbox | Teclado |
