@@ -81,7 +81,7 @@ final class EmulatorCore {
         var length = 0
         let p = smw_sram(handle, &length)!
         data.withUnsafeBytes { raw in
-            memcpy(p, raw.baseAddress!, min(length, raw.count))
+            _ = memcpy(p, raw.baseAddress!, min(length, raw.count))
         }
     }
 

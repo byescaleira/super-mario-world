@@ -40,7 +40,7 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Super Mario World
+        CFBundleDisplayName: Mario
         LSApplicationCategoryType: public.app-category.action-games
         GCSupportsGameMode: true
         GCSupportsControllerUserInteraction: true
@@ -65,7 +65,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.byescaleira.smw
-        PRODUCT_NAME: SuperMarioWorld
+        PRODUCT_NAME: Mario
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
@@ -74,6 +74,8 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: Q7QLR2PH2X
         CODE_SIGN_ENTITLEMENTS: App/SuperMarioWorld.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": App/SuperMarioWorld-macOS.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletvos*]": "App Icon & Top Shelf Image"

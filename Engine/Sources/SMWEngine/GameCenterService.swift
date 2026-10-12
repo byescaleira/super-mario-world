@@ -60,7 +60,6 @@ public final class GameCenterService {
                 self.playerName = self.isAuthenticated ? GKLocalPlayer.local.displayName : nil
                 if self.isAuthenticated {
                     GKAccessPoint.shared.location = .topTrailing
-                    GKAccessPoint.shared.showHighlights = true
                     self.listener.onInvite = { [weak self] invite in self?.onInviteAccepted?(invite) }
                     GKLocalPlayer.local.register(self.listener)
                 }

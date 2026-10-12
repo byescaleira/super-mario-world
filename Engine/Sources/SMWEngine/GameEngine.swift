@@ -200,7 +200,7 @@ public final class GameEngine {
                 emulate(core, into: fb)
                 frameCounter += 1
                 lastWidth = core.frameWidth
-                lastFrame.withUnsafeMutableBufferPointer { memcpy($0.baseAddress!, fb, Self.frameBytes) }
+                lastFrame.withUnsafeMutableBufferPointer { _ = memcpy($0.baseAddress!, fb, Self.frameBytes) }
             }
         } else {
             frameCounter += 1
