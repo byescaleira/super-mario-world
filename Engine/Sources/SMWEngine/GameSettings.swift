@@ -34,8 +34,8 @@ public enum AspectMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// User preferences. Everything here is presentation or comfort: none of it
-/// alters how the game itself runs.
+/// User preferences. Everything here is presentation or comfort and leaves
+/// the game itself untouched, except the opt-in infinite lives cheat.
 @MainActor
 @Observable
 public final class GameSettings {

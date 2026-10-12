@@ -17,8 +17,8 @@
 <p align="center">
   O Super Mario World original, montado byte a byte a partir da disassembly
   <a href="https://github.com/IsoFrieze/SMWDisX">SMWDisX</a> e executado por um runtime nativo escrito do zero,
-  com uma camada de remaster que não muda nada do jogo: <b>4K</b>, <b>HDR / Dolby Vision</b>, <b>widescreen real</b>,
-  <b>120 Hz</b>, <b>controles Bluetooth</b>, <b>Game Center</b> e <b>multijogador por SharePlay</b>.
+  com uma camada de remaster que não muda nada do jogo: <b>4K</b>, <b>widescreen real</b>, <b>rolagem suave</b>,
+  <b>HDR / Dolby Vision</b>, <b>controles Bluetooth e teclado</b>, <b>Game Center</b> e <b>multijogador por SharePlay</b>.
 </p>
 
 ---
@@ -44,32 +44,63 @@ essa área para desenhar as laterais. O centro de 256 px continua bit a bit idê
 segue as regras do hardware. Os limites de cada cena saem dos `GameMode` do `rammap.asm`: fora dos limites da
 fase só o fundo continua, e HUD e molduras ficam no centro.
 
-### 🌟 120 Hz sem mudar a física
+### 🌟 Movimento suave sem mudar a física
+
+A lógica do jogo continua a 60 quadros por segundo, e a apresentação foi refeita para que nada trema na tela:
+
+- **Ritmo travado no vsync.** Um `CADisplayLink` próprio conduz cada quadro pelos timestamps do vsync, pedindo
+  exatamente 60 Hz ao painel (ProMotion incluso), e cada imagem fica na tela por pelo menos um refresh inteiro.
+  O overlay *Mostrar desempenho* mostra os *saltos*, que devem ficar em 0.
+- **Fundo com rolagem sub-pixel.** O SNES só rola em pixels inteiros: o fundo de paralaxe, na metade da
+  velocidade, anda 1, 1, 0, 1, 0… px por quadro, e isso vira um para-e-anda visível quando cada pixel ocupa 7
+  pixels da tela. O PPU compõe cada linha em 4 amostras por pixel e as camadas de fundo seguem a posição real,
+  dentro do próprio pixel do jogo (0,5 / 0,75 px por quadro andando). Camada principal, sprites e HUD ficam
+  exatamente como no jogo; desligada, a imagem é idêntica bit a bit.
+- **Quadros intermediários a 120 Hz (opcional).** O PPU grava o estado de vídeo linha a linha e redesenha a cena
+  com scroll e sprites no meio do caminho entre dois quadros reais (no centro da imagem abaixo). Fica desligado
+  por padrão, porque pixels do SNES não andam meio pixel e os passos podem parecer desiguais.
 
 <p align="center"><img src="docs/images/motion-120hz.png" alt="Quadro real, quadro intermediário e quadro real" width="80%"></p>
-
-A lógica do jogo continua a 60 quadros por segundo. Para telas ProMotion, o PPU grava o estado de vídeo linha a
-linha e redesenha a cena com scroll e sprites **no meio do caminho** entre dois quadros reais (no centro da
-imagem acima). Não é interpolação por estimativa de imagem, então não há artefatos.
 
 ## 🪙 O que foi feito
 
 | Área | Detalhes |
 | --- | --- |
-| **Runtime SNES próprio (C11)** | CPU 65C816 com custo de ciclos por acesso (lag e raster fiéis), SPC700 + S-DSP (BRR, ADSR/GAIN, eco FIR, ruído, pitch mod), PPU por scanline (modos 0–4 e 7, limites de sprites, janelas, color math, mosaico), DMA/HDMA e IRQ/NMI. Roda a mais de 600 fps sem tela. |
+| **Runtime SNES próprio (C11)** | CPU 65C816 com custo de ciclos por acesso (lag e raster fiéis), SPC700 + S-DSP (BRR, ADSR/GAIN, eco FIR, ruído, pitch mod), PPU por scanline (modos 0–4 e 7, limites de sprites, janelas, color math, mosaico), DMA/HDMA e IRQ/NMI. Roda a mais de 400 fps sem tela. |
 | **4K** | Upscale na GPU direto para a resolução do painel (até 3840×2160) com *sharp bilinear*, *Scale4x* ou CRT (feixe por scanline, máscara de abertura, curvatura). |
-| **HDR / Dolby Vision** | EDR em `rgba16Float` / Display P3 no iPhone, iPad e Mac; HDR10 PQ / BT.2020 no Apple TV, que pede à TV o modo Dolby Vision a 60 Hz via `AVDisplayManager`. Expansão só dos realces, com o branco de referência em 203 nits. |
-| **Controles** | DualSense (luz vermelha do Mario, gatilhos adaptativos, PS/touchpad abrem o menu), Xbox, Switch Pro, MFi, Siri Remote e teclado, com mapeamento posicional igual ao do SNES. Controles de toque multitoque em Liquid Glass no iPhone/iPad. |
+| **HDR / Dolby Vision** | EDR em `rgba16Float` / Display P3 no iPhone, iPad e Mac, com expansão só dos realces. No Apple TV a saída padrão é SDR a 60 Hz, porque a arte do jogo é SDR e numa TV em modo HDR ela fica lavada; HDR10 PQ / BT.2020 com pedido de Dolby Vision via `AVDisplayManager` fica como opção no menu. |
+| **Controles** | DualSense (luz vermelha do Mario, gatilhos adaptativos, PS/touchpad abrem o menu), Xbox, Switch Pro, MFi, Siri Remote e teclado, com mapeamento posicional igual ao do SNES. No Apple TV o botão B (○) é só do jogo e não volta para a tela inicial. Teclado Bluetooth no iPad funciona sem tocar na tela. Controles de toque multitoque em Liquid Glass no iPhone/iPad, que saem da frente enquanto o teclado está em uso. |
 | **Vibração ligada ao jogo** | Os IDs de som que o jogo manda ao SPC700 (`constants.asm`) disparam padrões Core Haptics: pulo, pisão, chute, terremoto, morte. |
 | **Saves à prova de perda** | O save do cartucho é gravado no quadro seguinte ao jogo salvar, em arquivo + 3 backups + `UserDefaults` + iCloud. A mescla é feita por arquivo do jogo, validando o checksum `$5A5A` do SMW e escolhendo o arquivo com mais saídas concluídas. Apagamentos feitos no jogo são respeitados. Save states são comprimidos (LZFSE), versionados e nunca voltam o save do cartucho. |
 | **Game Center** | Conquistas tiradas do progresso real (saídas, switch palaces, cada Koopaling, Bowser, 5 moedas de dragão) e placar de pontuação. |
 | **Multijogador online** | Modo 2 jogadores (Mario e Luigi) por **SharePlay** ou partida do **Game Center**, com *rollback netplay*: só os botões trafegam, o jogo é determinístico, e quando a previsão erra o jogo volta por save state e reaplica os inputs. Checksums da RAM detectam e corrigem dessincronias. |
-| **Conforto** | Fundo com rolagem sub-pixel (camadas de paralaxe deslizam na velocidade real em vez de andar aos trancos de 1 px), run-ahead (menos latência), rebobinar, avanço rápido, 6 slots com miniatura, retomada de onde parou, áudio HD opcional, vidas infinitas opcionais (desligadas por padrão; fora do online). |
+| **Conforto** | Run-ahead (menos latência), rebobinar, avanço rápido, 6 slots com miniatura, retomada de onde parou, áudio HD opcional e vidas infinitas opcionais. |
+
+## ⚙️ Configurações
+
+Pelo menu de pausa (PS, touchpad, Esc ou Voltar no Siri Remote) → **Configurações**:
+
+| Opção | Padrão | O que faz |
+| --- | --- | --- |
+| Filtro de vídeo | Pixel Perfect | *Sharp bilinear*, Suave (Scale4x) ou CRT (com scanlines, curvatura e cores de TV) |
+| Proporção | TV original (pixel 8:7) | Pixel como na TV da época, pixels quadrados ou esticar |
+| Widescreen | ligado | Preenche a tela com o que o jogo já tem na VRAM |
+| Fundo suave (sub-pixel) | ligado | Paralaxe na velocidade real (com o filtro Pixel Perfect) |
+| HDR / Dolby Vision | ligado (Apple TV: desligado) | Realces além do branco SDR; brilho e cores P3 ajustáveis |
+| Áudio HD | desligado | Interpolação cúbica no lugar da gaussiana do S-DSP |
+| Redução de latência | 1 frame | Run-ahead de 0 a 2 quadros |
+| Rebobinar | ligado | Segure o gatilho esquerdo (ou Backspace) |
+| Vibração | ligado | Core Haptics no controle ou no aparelho |
+| Vidas infinitas | desligado | Morrer não gasta vida e não há game over; 1-UPs continuam contando. Fica sem efeito no online |
+| Quadros intermediários (120 Hz) | desligado | iPhone, iPad e Mac com ProMotion |
+| Controles na tela | ligado | iPhone e iPad |
+| Mostrar desempenho | desligado | Hz da tela, fps do jogo, saltos, áudio e falhas |
 
 ## 🧰 Tecnologias
 
 - **C11** para o runtime, **Swift 6** (concorrência estrita) e **SwiftUI** para o app
 - **Metal 4** (`MTL4CommandQueue`, argument tables, residency sets, compilador MTL4), com Metal clássico no Apple TV e no simulador; framebuffer zero-copy em memória unificada
+- **CADisplayLink** com timestamps de vsync para o ritmo dos quadros e `presentAfterMinimumDuration` no Metal
 - **AVAudioEngine** com render block em tempo real e ring buffer lock-free em C
 - **GameController**, **Core Haptics**, **GameKit**, **GroupActivities** (SharePlay), **NSUbiquitousKeyValueStore**
 - **Icon Composer** (ícone em camadas Liquid Glass) e brand assets em camadas com parallax no tvOS
@@ -81,7 +112,7 @@ imagem acima). Não é interpolação por estimativa de imagem, então não há 
 ```
 SMWDisX/      submodule: disassembly original (fonte da verdade)
 scripts/      montagem da ROM, símbolos do rammap → C, geração de ícones
-Core/         runtime em C: cpu, spc/dsp, ppu, widescreen, interp, saves
+Core/         runtime em C: cpu, spc/dsp, ppu, widescreen, sub-pixel, interp, saves
 Engine/       SMWEngine (Swift): Metal, áudio, controles, Game Center, netplay, UI
 App/          app multiplataforma (um único target), ícones
 Harness/      executável headless para testes, capturas e extração de arte
@@ -140,15 +171,18 @@ Crie estes itens em **App Store Connect → seu app → Game Center** com os mes
 
 ## 🎮 Controles
 
-| Ação | DualSense | Xbox | Teclado |
-| --- | --- | --- | --- |
-| Pular | ✕ | A | Z |
-| Pulo giratório | ○ | B | X |
-| Correr / pegar | □ | X | A |
-| L / R | L1 / R1 | LB / RB | Q / W |
-| Start / Select | Options / Create | Menu / View | Enter / Tab |
-| Rebobinar / avançar | L2 / R2 (gatilhos adaptativos) | LT / RT | Backspace / ` |
-| Menu de pausa | PS ou touchpad | Xbox | Esc |
+| Ação | DualSense | Xbox | Teclado | Siri Remote |
+| --- | --- | --- | --- | --- |
+| Andar | D-pad / analógico | D-pad / analógico | Setas | Deslizar |
+| Pular | ✕ | A | Z | Clicar |
+| Pulo giratório | ○ | B | X | — |
+| Correr / pegar | □ | X | A | Play/Pause |
+| L / R | L1 / R1 | LB / RB | Q / W | — |
+| Start / Select | Options / Create | Menu / View | Enter / Tab | — |
+| Rebobinar / avançar | L2 / R2 (gatilhos adaptativos) | LT / RT | Backspace / ` | — |
+| Menu de pausa | PS ou touchpad | Xbox | Esc | Voltar |
+
+No Apple TV, o botão TV do Siri Remote sempre volta para a tela inicial.
 
 ## 🏰 Créditos e aviso
 
